@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Clipboard, ClipboardList, FolderOpen, Save, Eye, X } from 'lucide-react'
 import { useStore } from '../store'
 import { XmlViewerModal } from './XmlViewerModal'
 
@@ -55,7 +56,7 @@ export function ResultDetailDrawer() {
         <div className="drawer-header">
           <strong>Detalhes do XML</strong>
           <button className="close-btn" onClick={() => setSelectedItem(null)}>
-            ✕
+            <X className="icon" />
           </button>
         </div>
 
@@ -108,21 +109,26 @@ export function ResultDetailDrawer() {
 
         <div className="detail-actions">
           <button className="btn" onClick={copyPath}>
-            📋 Copiar caminho
+            <Clipboard className="icon" />
+            Copiar caminho
           </button>
           {isInsideArchive && (
             <button className="btn" onClick={copyFullPath}>
-              📋 Copiar caminho completo
+              <ClipboardList className="icon" />
+              Copiar caminho completo
             </button>
           )}
           <button className="btn" onClick={openFolder}>
-            📂 Abrir pasta
+            <FolderOpen className="icon" />
+            Abrir pasta
           </button>
           <button className="btn" onClick={extract}>
-            💾 Extrair XML
+            <Save className="icon" />
+            Extrair XML
           </button>
           <button className="btn" onClick={() => setXmlViewerOpen(true)}>
-            👁 Visualizar XML
+            <Eye className="icon" />
+            Visualizar XML
           </button>
         </div>
       </div>

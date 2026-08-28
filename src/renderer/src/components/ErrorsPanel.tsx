@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AlertTriangle, X } from 'lucide-react'
 import { useStore } from '../store'
 
 const KIND_LABEL: Record<string, string> = {
@@ -22,8 +23,9 @@ export function ErrorsPanel() {
     <>
       {errors.length > 0 && (
         <div className="errors-banner" onClick={() => setOpen(true)}>
-          <span>
-            ⚠ {errors.length} {errors.length === 1 ? 'arquivo não pôde' : 'arquivos não puderam'} ser analisado(s).
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <AlertTriangle className="icon" style={{ width: 13, height: 13 }} />
+            {errors.length} {errors.length === 1 ? 'arquivo não pôde' : 'arquivos não puderam'} ser analisado(s).
           </span>
           <span>Ver detalhes →</span>
         </div>
@@ -34,7 +36,7 @@ export function ErrorsPanel() {
             <div className="modal-header">
               <strong>Erros e limitações da pesquisa</strong>
               <button className="close-btn" onClick={() => setOpen(false)}>
-                ✕
+                <X className="icon" />
               </button>
             </div>
             <div className="modal-body">
@@ -43,17 +45,18 @@ export function ErrorsPanel() {
                   <div className="detail-label">Limitações</div>
                   {limitationNotes.map((n, i) => (
                     <div key={i} className="key-hint invalid" style={{ marginTop: 6 }}>
-                      ⚠ {n}
+                      <AlertTriangle className="icon" style={{ width: 13, height: 13 }} />
+                      {n}
                     </div>
                   ))}
                 </div>
               )}
               {errors.map((err) => (
-                <div key={err.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--border-soft)' }}>
+                <div key={err.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <span className="badge type">{KIND_LABEL[err.kind] ?? err.kind}</span>
                   </div>
-                  <div className="mono" style={{ marginTop: 6, color: 'var(--text-muted)', wordBreak: 'break-all' }}>
+                  <div className="mono" style={{ marginTop: 6, color: 'var(--muted-foreground)', wordBreak: 'break-all' }}>
                     {err.path}
                   </div>
                   <div style={{ marginTop: 4, fontSize: 12 }}>{err.message}</div>

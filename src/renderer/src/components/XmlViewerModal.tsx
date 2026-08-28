@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { AlertTriangle, X } from 'lucide-react'
 import type { FoundItem } from '@shared/types'
 
 function formatXml(xml: string): string {
@@ -46,12 +47,17 @@ export function XmlViewerModal({ item, onClose }: { item: FoundItem; onClose: ()
         <div className="modal-header">
           <strong className="mono">{item.fileName}</strong>
           <button className="close-btn" onClick={onClose}>
-            ✕
+            <X className="icon" />
           </button>
         </div>
         <div className="modal-body">
-          {error && <div className="key-hint invalid">⚠ Falha ao carregar XML: {error}</div>}
-          {!error && !content && <div style={{ color: 'var(--text-muted)' }}>Carregando...</div>}
+          {error && (
+            <div className="key-hint invalid">
+              <AlertTriangle className="icon" style={{ width: 13, height: 13 }} />
+              Falha ao carregar XML: {error}
+            </div>
+          )}
+          {!error && !content && <div style={{ color: 'var(--muted-foreground)' }}>Carregando...</div>}
           {!error && content && <pre className="xml-view">{content}</pre>}
         </div>
       </div>

@@ -1,3 +1,4 @@
+import { Search, X } from 'lucide-react'
 import { useStore } from '../store'
 import { parseIdentifierList } from '@shared/keyUtils'
 
@@ -26,14 +27,16 @@ export function SearchLauncher() {
   if (searching) {
     return (
       <button className="btn danger block" onClick={handleCancel}>
-        ✕ Cancelar pesquisa
+        <X className="icon" />
+        Cancelar pesquisa
       </button>
     )
   }
 
   return (
     <button className="btn primary block" onClick={handleStart} disabled={!canSearch}>
-      🔎 LOCALIZAR XMLs
+      <Search className="icon" />
+      LOCALIZAR XMLs
     </button>
   )
 }

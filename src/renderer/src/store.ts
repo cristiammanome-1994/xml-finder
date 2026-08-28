@@ -9,6 +9,11 @@ import type {
 } from '@shared/types'
 
 export type ResultFilter = 'todos' | 'encontrados' | 'nao_encontrados' | 'erros'
+export type Theme = 'light' | 'dark'
+
+function readInitialTheme(): Theme {
+  return document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+}
 
 const emptyStats: SearchStats = {
   filesScanned: 0,
@@ -38,6 +43,7 @@ interface State {
   showHistory: boolean
   hasSearched: boolean
   toast: string | null
+  theme: Theme
 
   setRootFolder: (v: string | null) => void
   setIdentifiersRaw: (v: string) => void
@@ -46,6 +52,7 @@ interface State {
   setSelectedItem: (v: FoundItem | null) => void
   setShowHistory: (v: boolean) => void
   showToast: (msg: string) => void
+  toggleTheme: () => void
 
   resetForNewSearch: () => void
   beginSearch: () => void
@@ -71,6 +78,7 @@ export const useStore = create<State>((set, get) => ({
   showHistory: false,
   hasSearched: false,
   toast: null,
+  theme: readInitialTheme(),
 
   setRootFolder: (v) => set({ rootFolder: v }),
   setIdentifiersRaw: (v) => set({ identifiersRaw: v }),
@@ -78,6 +86,12 @@ export const useStore = create<State>((set, get) => ({
   setFilter: (v) => set({ filter: v }),
   setSelectedItem: (v) => set({ selectedItem: v }),
   setShowHistory: (v) => set({ showHistory: v }),
+  toggleTheme: () => {
+    const next: Theme = get().theme === 'dark' ? 'light' : 'dark'
+    document.documentElement.classList.toggle('dark', next === 'dark')
+    localStorage.setItem('xml-finder-theme', next)
+    set({ theme: next })
+  },
   showToast: (msg) => {
     set({ toast: msg })
     setTimeout(() => {

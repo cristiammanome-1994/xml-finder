@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { X } from 'lucide-react'
 import { useStore } from '../store'
 import type { HistoryEntry } from '@shared/types'
 
@@ -48,12 +49,12 @@ export function HistoryPanel() {
         <div className="drawer-header">
           <strong>Histórico de pesquisas</strong>
           <button className="close-btn" onClick={() => setShow(false)}>
-            ✕
+            <X className="icon" />
           </button>
         </div>
 
         {entries.length === 0 ? (
-          <div style={{ color: 'var(--text-faint)', fontSize: 12.5 }}>Nenhuma pesquisa salva ainda.</div>
+          <div style={{ color: 'var(--muted-foreground)', fontSize: 12.5 }}>Nenhuma pesquisa salva ainda.</div>
         ) : (
           <>
             <div className="history-list">
@@ -63,8 +64,8 @@ export function HistoryPanel() {
                   <div className="path">{e.rootFolder}</div>
                   <div className="stats">
                     <span>{e.totalIdentifiers} pesquisados</span>
-                    <span style={{ color: 'var(--success)' }}>{e.found} encontrados</span>
-                    <span style={{ color: 'var(--danger)' }}>{e.notFound} não encontrados</span>
+                    <span style={{ color: 'var(--status-good)' }}>{e.found} encontrados</span>
+                    <span style={{ color: 'var(--status-critical)' }}>{e.notFound} não encontrados</span>
                     <span>{fmtElapsed(e.elapsedMs)}</span>
                   </div>
                 </div>

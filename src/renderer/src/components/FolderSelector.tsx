@@ -1,3 +1,4 @@
+import { FolderOpen } from 'lucide-react'
 import { useStore } from '../store'
 
 export function FolderSelector() {
@@ -18,7 +19,8 @@ export function FolderSelector() {
       </div>
       <div style={{ marginTop: 10 }}>
         <button className="btn block" onClick={pick} disabled={searching}>
-          📁 Selecionar pasta
+          <FolderOpen className="icon" />
+          Selecionar pasta
         </button>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { CheckCircle2, AlertTriangle, Type } from 'lucide-react'
 import { useStore } from '../store'
 import { parseIdentifierList, isLikelyAccessKey, validateAccessKey } from '@shared/keyUtils'
 
@@ -41,14 +42,21 @@ export function IdentifiersInput() {
       {analysis.total > 0 && (
         <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
           {analysis.validKeys > 0 && (
-            <div className="key-hint valid">✓ {analysis.validKeys} chave(s) de acesso válida(s)</div>
+            <div className="key-hint valid">
+              <CheckCircle2 className="icon" style={{ width: 13, height: 13 }} />
+              {analysis.validKeys} chave(s) de acesso válida(s)
+            </div>
           )}
           {analysis.invalidKeys > 0 && (
-            <div className="key-hint invalid">⚠ {analysis.invalidKeys} chave(s) com dígito verificador inválido</div>
+            <div className="key-hint invalid">
+              <AlertTriangle className="icon" style={{ width: 13, height: 13 }} />
+              {analysis.invalidKeys} chave(s) com dígito verificador inválido
+            </div>
           )}
           {analysis.byName > 0 && (
-            <div className="key-hint" style={{ color: 'var(--text-muted)' }}>
-              🔤 {analysis.byName} identificador(es) por nome de arquivo
+            <div className="key-hint" style={{ color: 'var(--muted-foreground)' }}>
+              <Type className="icon" style={{ width: 13, height: 13 }} />
+              {analysis.byName} identificador(es) por nome de arquivo
             </div>
           )}
         </div>

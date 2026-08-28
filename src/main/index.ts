@@ -14,7 +14,6 @@ import type {
 } from '@shared/types'
 import { validateAccessKey } from '@shared/keyUtils'
 import { extractSingleFile, readLocationContent } from './engine/extractor'
-import { exportToCsv, exportToExcel } from './engine/exporter'
 import { appendHistoryEntry, clearHistory, loadHistory } from './engine/history'
 
 let mainWindow: BrowserWindow | null = null
@@ -100,6 +99,7 @@ function registerIpcHandlers(): void {
       filters: format === 'xlsx' ? [{ name: 'Excel', extensions: ['xlsx'] }] : [{ name: 'CSV', extensions: ['csv'] }]
     })
     if (result.canceled || !result.filePath) return null
+    const { exportToCsv, exportToExcel } = await import('./engine/exporter')
     if (format === 'xlsx') await exportToExcel(items, result.filePath)
     else await exportToCsv(items, result.filePath)
     return result.filePath

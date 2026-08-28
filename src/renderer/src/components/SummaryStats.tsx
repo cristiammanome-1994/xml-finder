@@ -1,5 +1,42 @@
 import { useMemo } from 'react'
+import type { LucideIcon } from 'lucide-react'
+import { ListChecks, CheckCircle2, XCircle, FileArchive, PackageOpen, Folder, AlertTriangle } from 'lucide-react'
 import { useStore } from '../store'
+
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+  tone
+}: {
+  label: string
+  value: number
+  icon: LucideIcon
+  tone?: 'good' | 'critical' | 'warning'
+}) {
+  const color =
+    tone === 'good'
+      ? 'var(--status-good)'
+      : tone === 'critical'
+        ? 'var(--status-critical)'
+        : tone === 'warning'
+          ? 'var(--status-warning)'
+          : 'var(--primary)'
+
+  return (
+    <div className="stat-card">
+      <div className="stat-icon" style={{ background: `color-mix(in oklab, ${color} 14%, transparent)`, color }}>
+        <Icon />
+      </div>
+      <div className="stat-body">
+        <div className="stat-value" style={{ color: tone ? color : undefined }}>
+          {value.toLocaleString('pt-BR')}
+        </div>
+        <div className="stat-label">{label}</div>
+      </div>
+    </div>
+  )
+}
 
 export function SummaryStats() {
   const found = useStore((s) => s.found)
@@ -25,36 +62,13 @@ export function SummaryStats() {
 
   return (
     <div className="summary-bar">
-      <div className="summary-chip">
-        <div className="num">{total.toLocaleString('pt-BR')}</div>
-        <div className="label">Pesquisados</div>
-      </div>
-      <div className="summary-chip found">
-        <div className="num">{found.length.toLocaleString('pt-BR')}</div>
-        <div className="label">Encontrados</div>
-      </div>
-      <div className="summary-chip notfound">
-        <div className="num">{notFound.length.toLocaleString('pt-BR')}</div>
-        <div className="label">Não encontrados</div>
-      </div>
-      <div className="summary-chip">
-        <div className="num">{breakdown.zip.toLocaleString('pt-BR')}</div>
-        <div className="label">Dentro de ZIP</div>
-      </div>
-      <div className="summary-chip">
-        <div className="num">{breakdown.rar.toLocaleString('pt-BR')}</div>
-        <div className="label">Dentro de RAR</div>
-      </div>
-      <div className="summary-chip">
-        <div className="num">{breakdown.folder.toLocaleString('pt-BR')}</div>
-        <div className="label">Em pastas</div>
-      </div>
-      {errors.length > 0 && (
-        <div className="summary-chip errors">
-          <div className="num">{errors.length.toLocaleString('pt-BR')}</div>
-          <div className="label">Erros</div>
-        </div>
-      )}
+      <StatCard label="Pesquisados" value={total} icon={ListChecks} />
+      <StatCard label="Encontrados" value={found.length} icon={CheckCircle2} tone="good" />
+      <StatCard label="Não encontrados" value={notFound.length} icon={XCircle} tone="critical" />
+      <StatCard label="Dentro de ZIP" value={breakdown.zip} icon={FileArchive} />
+      <StatCard label="Dentro de RAR" value={breakdown.rar} icon={PackageOpen} />
+      <StatCard label="Em pastas" value={breakdown.folder} icon={Folder} />
+      {errors.length > 0 && <StatCard label="Erros" value={errors.length} icon={AlertTriangle} tone="warning" />}
     </div>
   )
 }

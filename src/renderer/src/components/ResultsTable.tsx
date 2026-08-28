@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { Download } from 'lucide-react'
 import { useStore, type ResultFilter } from '../store'
 import type { ResultItem } from '@shared/types'
 
@@ -78,13 +79,16 @@ export function ResultsTable() {
         </div>
         <div className="toolbar-actions">
           <button className="btn sm" disabled={allResults.length === 0} onClick={() => handleExport('xlsx')}>
-            ⬇ Exportar Excel
+            <Download className="icon" style={{ width: 13, height: 13 }} />
+            Exportar Excel
           </button>
           <button className="btn sm" disabled={allResults.length === 0} onClick={() => handleExport('csv')}>
-            ⬇ Exportar CSV
+            <Download className="icon" style={{ width: 13, height: 13 }} />
+            Exportar CSV
           </button>
           <button className="btn sm" disabled={notFound.length === 0} onClick={handleExportNotFound}>
-            ⬇ Exportar não encontrados
+            <Download className="icon" style={{ width: 13, height: 13 }} />
+            Exportar não encontrados
           </button>
         </div>
       </div>
