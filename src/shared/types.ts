@@ -113,6 +113,8 @@ export interface HistoryEntry {
   notFound: number
   elapsedMs: number
   results: ResultItem[]
+  /** true quando a pesquisa foi cancelada antes de terminar — os "não encontrados" podem só não ter sido verificados ainda. */
+  cancelled: boolean
 }
 
 export interface KeyValidation {

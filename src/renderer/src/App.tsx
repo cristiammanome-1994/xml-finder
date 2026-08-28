@@ -38,7 +38,8 @@ export default function App() {
             found: foundRef.current.length,
             notFound: msg.notFound.length,
             elapsedMs: msg.stats.elapsedMs,
-            results: [...foundRef.current, ...msg.notFound]
+            results: [...foundRef.current, ...msg.notFound],
+            cancelled: msg.stats.phase === 'cancelado'
           })
         }
       }

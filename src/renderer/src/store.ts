@@ -134,7 +134,7 @@ export const useStore = create<State>((set, get) => ({
       notFound,
       errors: [],
       limitationNotes: [],
-      stats: { ...stats, phase: 'concluido' },
+      stats,
       searching: false,
       hasSearched: true,
       filter: 'todos',

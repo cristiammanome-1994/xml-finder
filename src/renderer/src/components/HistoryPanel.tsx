@@ -38,7 +38,7 @@ export function HistoryPanel() {
       errorCount: 0,
       elapsedMs: entry.elapsedMs,
       estimatedTotal: entry.totalIdentifiers,
-      phase: 'concluido' as const
+      phase: entry.cancelled ? ('cancelado' as const) : ('concluido' as const)
     }
     loadFromHistory(entry.results, stats, entry.rootFolder)
   }
@@ -60,7 +60,14 @@ export function HistoryPanel() {
             <div className="history-list">
               {entries.map((e) => (
                 <div key={e.id} className="history-item" onClick={() => reopen(e)}>
-                  <div className="date">{new Date(e.date).toLocaleString('pt-BR')}</div>
+                  <div className="date">
+                    {new Date(e.date).toLocaleString('pt-BR')}
+                    {e.cancelled && (
+                      <span className="badge type" style={{ marginLeft: 8, color: 'var(--status-warning)' }}>
+                        Cancelada — incompleta
+                      </span>
+                    )}
+                  </div>
                   <div className="path">{e.rootFolder}</div>
                   <div className="stats">
                     <span>{e.totalIdentifiers} pesquisados</span>

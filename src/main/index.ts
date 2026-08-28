@@ -115,8 +115,33 @@ function registerIpcHandlers(): void {
   ipcMain.handle('history:clear', () => clearHistory(app.getPath('userData')))
 }
 
+/** Emite um 'done' sintético para a renderer sempre que a pesquisa não pôde nem começar de verdade. */
+function emitFatalSearchError(message: string): void {
+  mainWindow?.webContents.send('search:message', {
+    type: 'done',
+    stats: {
+      filesScanned: 0,
+      xmlAnalyzed: 0,
+      zipCount: 0,
+      rarCount: 0,
+      foundCount: 0,
+      notFoundCount: 0,
+      errorCount: 1,
+      elapsedMs: 0,
+      estimatedTotal: 0,
+      phase: 'erro'
+    },
+    notFound: [],
+    limitationNotes: [message]
+  } satisfies SearchWorkerMessage)
+}
+
 function startSearch(options: SearchOptions): void {
   if (activeWorker) {
+    // Remove os listeners ANTES de terminar: terminate() para o worker "assim que possível",
+    // não instantaneamente, e sem isso uma mensagem que ele já estava enviando poderia chegar
+    // à renderer misturada com as da nova pesquisa (mesmo canal IPC, sem id de pesquisa).
+    activeWorker.removeAllListeners()
     activeWorker.postMessage({ type: 'cancel' })
     activeWorker.terminate()
     activeWorker = null
@@ -124,27 +149,17 @@ function startSearch(options: SearchOptions): void {
 
   const workerPath = path.join(__dirname, 'searchWorker.js')
   if (!fs.existsSync(workerPath)) {
-    mainWindow?.webContents.send('search:message', {
-      type: 'done',
-      stats: {
-        filesScanned: 0,
-        xmlAnalyzed: 0,
-        zipCount: 0,
-        rarCount: 0,
-        foundCount: 0,
-        notFoundCount: 0,
-        errorCount: 1,
-        elapsedMs: 0,
-        estimatedTotal: 0,
-        phase: 'erro'
-      },
-      notFound: [],
-      limitationNotes: [`Worker de pesquisa não encontrado em ${workerPath}`]
-    } satisfies SearchWorkerMessage)
+    emitFatalSearchError(`Worker de pesquisa não encontrado em ${workerPath}`)
     return
   }
 
-  const worker = new Worker(workerPath)
+  let worker: Worker
+  try {
+    worker = new Worker(workerPath)
+  } catch (err) {
+    emitFatalSearchError(`Falha ao iniciar o worker de pesquisa: ${(err as Error).message}`)
+    return
+  }
   activeWorker = worker
 
   worker.on('message', (msg: SearchWorkerMessage) => {
@@ -156,23 +171,8 @@ function startSearch(options: SearchOptions): void {
   })
 
   worker.on('error', (err: Error) => {
-    mainWindow?.webContents.send('search:message', {
-      type: 'done',
-      stats: {
-        filesScanned: 0,
-        xmlAnalyzed: 0,
-        zipCount: 0,
-        rarCount: 0,
-        foundCount: 0,
-        notFoundCount: 0,
-        errorCount: 1,
-        elapsedMs: 0,
-        estimatedTotal: 0,
-        phase: 'erro'
-      },
-      notFound: [],
-      limitationNotes: [`Erro no worker de pesquisa: ${err.message}`]
-    } satisfies SearchWorkerMessage)
+    emitFatalSearchError(`Erro no worker de pesquisa: ${err.message}`)
+    worker.terminate()
     if (activeWorker === worker) activeWorker = null
   })
 

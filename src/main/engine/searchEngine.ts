@@ -25,6 +25,8 @@ const PARTIAL_READ_BYTES = 8 * 1024
 const FULL_READ_CAP_BYTES = 5 * 1024 * 1024
 const PROGRESS_THROTTLE_MS = 150
 const ZIP_ENTRY_SNIFF_CAP = 10 * 1024 * 1024
+/** Identificadores genéricos (não-chave) mais curtos que isso são propensos demais a falso positivo por substring. */
+const MIN_GENERIC_MATCH_LENGTH = 6
 
 interface GenericPending {
   raw: string
@@ -52,17 +54,24 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
   const startedAt = Date.now()
   const maxDepth = depthToNumber(options.maxDepth)
 
-  const pendingDigits = new Map<string, string>()
+  // Cada chave de 44 dígitos mapeia para uma LISTA de identificadores brutos — o usuário pode
+  // colar a mesma chave duas vezes com formatação diferente (com/sem traços), e cada ocorrência
+  // deve gerar seu próprio resultado quando o arquivo for encontrado, em vez de uma sobrescrever
+  // silenciosamente a outra.
+  const pendingDigits = new Map<string, string[]>()
   const genericPending: GenericPending[] = []
   for (const id of options.identifiers) {
     const digits = onlyDigits(id)
     if (digits.length === 44) {
-      pendingDigits.set(digits, id)
+      const existing = pendingDigits.get(digits)
+      if (existing) existing.push(id)
+      else pendingDigits.set(digits, [id])
     } else {
       genericPending.push({ raw: id, normalized: normalizeForNameMatch(id) })
     }
   }
-  const totalIdentifiers = pendingDigits.size + genericPending.length
+  let totalIdentifiers = genericPending.length
+  for (const raws of pendingDigits.values()) totalIdentifiers += raws.length
 
   const stats: SearchStats = {
     filesScanned: 0,
@@ -90,6 +99,11 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
 
   const allResolved = (): boolean => pendingDigits.size === 0 && genericPending.length === 0
 
+  const reportError = (diskPath: string, kind: ScanError['kind'], message: string): void => {
+    stats.errorCount++
+    hooks.onError({ id: randomUUID(), path: diskPath, kind, message })
+  }
+
   const removeGenericMatch = (raw: string): void => {
     const idx = genericPending.findIndex((g) => g.raw === raw)
     if (idx >= 0) genericPending.splice(idx, 1)
@@ -115,30 +129,32 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
   ): Promise<void> {
     stats.xmlAnalyzed++
 
-    let matchedIdentifier: string | null = null
+    let matchedIdentifiers: string[] | null = null
     let method: MatchMethod = 'nao_encontrado'
     let chave: string | null = null
     let docType: DocumentType = 'Desconhecido'
 
     const nameDigits = onlyDigits(fileName)
     if (nameDigits.length === 44 && pendingDigits.has(nameDigits)) {
-      matchedIdentifier = pendingDigits.get(nameDigits)!
+      matchedIdentifiers = pendingDigits.get(nameDigits)!
       method = 'nome'
       chave = nameDigits
       pendingDigits.delete(nameDigits)
     }
 
-    if (!matchedIdentifier && genericPending.length > 0) {
+    if (!matchedIdentifiers && genericPending.length > 0) {
       const normalizedName = normalizeForNameMatch(fileName)
-      const hit = genericPending.find((g) => g.normalized.length > 0 && normalizedName.includes(g.normalized))
+      const hit = genericPending.find(
+        (g) => g.raw.length >= MIN_GENERIC_MATCH_LENGTH && g.normalized.length > 0 && normalizedName.includes(g.normalized)
+      )
       if (hit) {
-        matchedIdentifier = hit.raw
+        matchedIdentifiers = [hit.raw]
         method = 'nome'
         removeGenericMatch(hit.raw)
       }
     }
 
-    if (!matchedIdentifier && (pendingDigits.size > 0 || genericPending.length > 0)) {
+    if (!matchedIdentifiers && (pendingDigits.size > 0 || genericPending.length > 0)) {
       try {
         let content: string
         const partial = await getPartial()
@@ -153,7 +169,7 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
 
         for (const key of info.accessKeys) {
           if (pendingDigits.has(key)) {
-            matchedIdentifier = pendingDigits.get(key)!
+            matchedIdentifiers = pendingDigits.get(key)!
             method = 'conteudo'
             chave = key
             docType = info.docType
@@ -162,10 +178,10 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
           }
         }
 
-        if (!matchedIdentifier && genericPending.length > 0) {
-          const hit = genericPending.find((g) => g.raw.length >= 6 && content.includes(g.raw))
+        if (!matchedIdentifiers && genericPending.length > 0) {
+          const hit = genericPending.find((g) => g.raw.length >= MIN_GENERIC_MATCH_LENGTH && content.includes(g.raw))
           if (hit) {
-            matchedIdentifier = hit.raw
+            matchedIdentifiers = [hit.raw]
             method = 'conteudo'
             docType = info.docType
             chave = info.accessKeys[0] ?? null
@@ -173,38 +189,34 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
           }
         }
 
-        if (!matchedIdentifier && info.accessKeys.length > 0) {
+        if (!matchedIdentifiers && info.accessKeys.length > 0) {
           chave = info.accessKeys[0]
           docType = info.docType
         }
       } catch (err) {
-        stats.errorCount++
-        hooks.onError({
-          id: randomUUID(),
-          path: diskPath,
-          kind: 'xml_invalido',
-          message: `Falha ao ler ${fileName}: ${(err as Error).message}`
-        })
+        reportError(diskPath, 'xml_invalido', `Falha ao ler ${fileName}: ${(err as Error).message}`)
         return
       }
     }
 
-    if (matchedIdentifier) {
-      stats.foundCount++
-      const item: FoundItem = {
-        id: randomUUID(),
-        identifier: matchedIdentifier,
-        status: 'encontrado',
-        fileName,
-        chave,
-        docType,
-        location: buildLocation(diskPath, chain),
-        storageType: storageTypeFor(chain),
-        matchMethod: method,
-        sizeBytes: size,
-        modifiedAt: mtimeMs
+    if (matchedIdentifiers) {
+      for (const identifier of matchedIdentifiers) {
+        stats.foundCount++
+        const item: FoundItem = {
+          id: randomUUID(),
+          identifier,
+          status: 'encontrado',
+          fileName,
+          chave,
+          docType,
+          location: buildLocation(diskPath, chain),
+          storageType: storageTypeFor(chain),
+          matchMethod: method,
+          sizeBytes: size,
+          modifiedAt: mtimeMs
+        }
+        hooks.onFound(item)
       }
-      hooks.onFound(item)
       emitProgress()
     }
   }
@@ -229,13 +241,7 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
   ): Promise<void> {
     const chain = [...parentChain, { containerType: 'zip' as const, entryPath: entry.fileName, entrySize: entry.size }]
     if (entry.isEncrypted) {
-      stats.errorCount++
-      hooks.onError({
-        id: randomUUID(),
-        path: diskPath,
-        kind: 'senha_protegida',
-        message: `Entrada protegida por senha: ${entry.fileName}`
-      })
+      reportError(diskPath, 'senha_protegida', `Entrada protegida por senha: ${entry.fileName}`)
       return
     }
     await tryMatchCandidate(
@@ -277,13 +283,11 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
     try {
       zip = await openZipFromBuffer(buffer)
     } catch (err) {
-      stats.errorCount++
-      hooks.onError({
-        id: randomUUID(),
-        path: diskPath,
-        kind: 'zip_corrompido',
-        message: `ZIP aninhado corrompido em ${parentChain.map((c) => c.entryPath).join(' / ')}: ${(err as Error).message}`
-      })
+      reportError(
+        diskPath,
+        'zip_corrompido',
+        `ZIP aninhado corrompido em ${parentChain.map((c) => c.entryPath).join(' / ')}: ${(err as Error).message}`
+      )
       return
     }
     try {
@@ -303,13 +307,11 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
     try {
       rar = await openRarFromBuffer(buffer)
     } catch (err) {
-      stats.errorCount++
-      hooks.onError({
-        id: randomUUID(),
-        path: diskPath,
-        kind: 'rar_corrompido',
-        message: `RAR aninhado corrompido em ${parentChain.map((c) => c.entryPath).join(' / ')}: ${(err as Error).message}`
-      })
+      reportError(
+        diskPath,
+        'rar_corrompido',
+        `RAR aninhado corrompido em ${parentChain.map((c) => c.entryPath).join(' / ')}: ${(err as Error).message}`
+      )
       return
     }
     await processRarEntries(rar, diskPath, parentChain, depthRemaining)
@@ -350,57 +352,61 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
           if (kind === 'zip') await descendIntoZipBuffer(buf, diskPath, nextChain, depthRemaining - 1)
           else await descendIntoRarBuffer(buf, diskPath, nextChain, depthRemaining - 1)
         } catch (err) {
-          stats.errorCount++
-          hooks.onError({
-            id: randomUUID(),
-            path: diskPath,
-            kind: 'desconhecido',
-            message: `Falha ao ler arquivo aninhado ${entry.fileName}: ${(err as Error).message}`
-          })
+          reportError(diskPath, 'desconhecido', `Falha ao ler arquivo aninhado ${entry.fileName}: ${(err as Error).message}`)
         }
       }
       emitProgress()
     }
   }
 
+  /**
+   * Ao contrário do ZIP (yauzl lê cada entrada de forma independente e barata), o extrator RAR
+   * reabre e reescaneia o arquivo inteiro do início a cada chamada de extract(). Por isso as
+   * entradas necessárias são coletadas primeiro e extraídas em UMA única chamada em lote — extrair
+   * entrada por entrada tornaria a busca O(n²) em RARs com muitos arquivos (arquivos fiscais reais
+   * frequentemente têm milhares de XMLs por pacote).
+   */
   async function processRarEntries(
     rar: OpenRarFile,
     diskPath: string,
     parentChain: ChainStep[],
     depthRemaining: number
   ): Promise<void> {
-    const fileEntries = rar.entries.filter((e) => !e.isDirectory)
-    for (const entry of fileEntries) {
-      if (hooks.isCancelled() || allResolved()) return
+    if (hooks.isCancelled() || allResolved()) return
+
+    const candidates: Array<{ entry: RarEntryInfo; kind: FileKind }> = []
+    for (const entry of rar.entries) {
+      if (entry.isDirectory) continue
       if (entry.isEncrypted) {
-        stats.errorCount++
-        hooks.onError({
-          id: randomUUID(),
-          path: diskPath,
-          kind: 'senha_protegida',
-          message: `Entrada protegida por senha no RAR: ${entry.fileName}`
-        })
+        reportError(diskPath, 'senha_protegida', `Entrada protegida por senha no RAR: ${entry.fileName}`)
         continue
       }
-
       const kind = resolveEntryKind(entry.fileName)
       if (kind === 'other') continue
+      candidates.push({ entry, kind })
+    }
+    if (candidates.length === 0) return
 
-      let extracted: Map<string, Buffer>
-      try {
-        extracted = await rar.readEntries([entry.fileName])
-      } catch (err) {
-        stats.errorCount++
-        hooks.onError({
-          id: randomUUID(),
-          path: diskPath,
-          kind: 'rar_corrompido',
-          message: `Falha ao extrair ${entry.fileName} do RAR: ${(err as Error).message}`
-        })
+    let extracted: Map<string, Buffer>
+    try {
+      extracted = await rar.readEntries(candidates.map((c) => c.entry.fileName))
+    } catch (err) {
+      reportError(
+        diskPath,
+        'rar_corrompido',
+        `Falha ao extrair ${candidates.length} entrada(s) do RAR: ${(err as Error).message}`
+      )
+      return
+    }
+
+    for (const { entry, kind } of candidates) {
+      if (hooks.isCancelled() || allResolved()) return
+
+      const buf = extracted.get(entry.fileName)
+      if (!buf) {
+        reportError(diskPath, 'rar_corrompido', `Entrada extraída mas vazia/ausente no RAR: ${entry.fileName}`)
         continue
       }
-      const buf = extracted.get(entry.fileName)
-      if (!buf) continue
 
       if (kind === 'xml') {
         await handleRarEntryXml(entry, buf, diskPath, parentChain)
@@ -430,10 +436,7 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
   try {
     for await (const file of walkFolder(
       options.rootFolder,
-      (e) => {
-        stats.errorCount++
-        hooks.onError({ id: randomUUID(), path: e.path, kind: 'sem_permissao', message: e.message })
-      },
+      (e) => reportError(e.path, 'sem_permissao', e.message),
       () => hooks.isCancelled() || allResolved()
     )) {
       if (hooks.isCancelled() || allResolved()) break
@@ -454,13 +457,7 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
             zip.close()
           }
         } catch (err) {
-          stats.errorCount++
-          hooks.onError({
-            id: randomUUID(),
-            path: file.absPath,
-            kind: 'zip_corrompido',
-            message: (err as Error).message
-          })
+          reportError(file.absPath, 'zip_corrompido', (err as Error).message)
         }
       } else if (kind === 'rar') {
         stats.rarCount++
@@ -474,13 +471,7 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
           const rar = await openRarFromBuffer(buffer)
           await processRarEntries(rar, file.absPath, [], maxDepth - 1)
         } catch (err) {
-          stats.errorCount++
-          hooks.onError({
-            id: randomUUID(),
-            path: file.absPath,
-            kind: 'rar_corrompido',
-            message: (err as Error).message
-          })
+          reportError(file.absPath, 'rar_corrompido', (err as Error).message)
         }
       }
 
@@ -492,8 +483,10 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
   }
 
   const notFound: NotFoundItem[] = []
-  for (const raw of pendingDigits.values()) {
-    notFound.push({ id: randomUUID(), identifier: raw, status: 'nao_encontrado' })
+  for (const raws of pendingDigits.values()) {
+    for (const raw of raws) {
+      notFound.push({ id: randomUUID(), identifier: raw, status: 'nao_encontrado' })
+    }
   }
   for (const g of genericPending) {
     notFound.push({ id: randomUUID(), identifier: g.raw, status: 'nao_encontrado' })

@@ -5,6 +5,7 @@ import { ThemeToggle } from './ThemeToggle'
 export function Header() {
   const showHistory = useStore((s) => s.showHistory)
   const setShowHistory = useStore((s) => s.setShowHistory)
+  const searching = useStore((s) => s.searching)
 
   return (
     <header className="header">
@@ -25,7 +26,12 @@ export function Header() {
           <ShieldCheck className="icon" style={{ width: 13, height: 13 }} />
           100% local
         </span>
-        <button className="btn ghost sm" onClick={() => setShowHistory(!showHistory)}>
+        <button
+          className="btn ghost sm"
+          onClick={() => setShowHistory(!showHistory)}
+          disabled={searching}
+          title={searching ? 'Aguarde a pesquisa atual terminar ou cancele antes de abrir o histórico' : undefined}
+        >
           <History className="icon" style={{ width: 13, height: 13 }} />
           Histórico
         </button>
