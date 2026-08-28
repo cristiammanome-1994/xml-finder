@@ -4,7 +4,7 @@
   "description": "XML Finder — localizacao rapida de XMLs fiscais em pastas, ZIPs e RARs",
   "main": "./out/main/index.js",
   "author": "",
-  "license": "ISC",
+  "license": "UNLICENSED",
   "type": "commonjs",
   "scripts": {
     "dev": "electron-vite dev",
