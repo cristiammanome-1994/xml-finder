@@ -22,7 +22,9 @@ import { extractXmlInfo } from './xmlMatcher'
 import { onlyDigits, normalizeForNameMatch } from '@shared/keyUtils'
 
 const PARTIAL_READ_BYTES = 8 * 1024
-const FULL_READ_CAP_BYTES = 5 * 1024 * 1024
+// Teto para ler um XML inteiro atrás da chave. Precisa acomodar arquivos de lote (dezenas/centenas
+// de notas em um único XML), que passam folgadamente de alguns MB.
+const FULL_READ_CAP_BYTES = 20 * 1024 * 1024
 const PROGRESS_THROTTLE_MS = 150
 const ZIP_ENTRY_SNIFF_CAP = 10 * 1024 * 1024
 /** Identificadores genéricos (não-chave) mais curtos que isso são propensos demais a falso positivo por substring. */
@@ -31,6 +33,12 @@ const MIN_GENERIC_MATCH_LENGTH = 6
 interface GenericPending {
   raw: string
   normalized: string
+}
+
+/** Um identificador satisfeito por um arquivo, com a chave de acesso que o casou (se houver). */
+interface CandidateMatch {
+  identifier: string
+  chave: string | null
 }
 
 export interface SearchHooks {
@@ -129,69 +137,70 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
   ): Promise<void> {
     stats.xmlAnalyzed++
 
-    let matchedIdentifiers: string[] | null = null
+    const matches: CandidateMatch[] = []
     let method: MatchMethod = 'nao_encontrado'
-    let chave: string | null = null
     let docType: DocumentType = 'Desconhecido'
 
     const nameDigits = onlyDigits(fileName)
     if (nameDigits.length === 44 && pendingDigits.has(nameDigits)) {
-      matchedIdentifiers = pendingDigits.get(nameDigits)!
+      for (const raw of pendingDigits.get(nameDigits)!) matches.push({ identifier: raw, chave: nameDigits })
       method = 'nome'
-      chave = nameDigits
       pendingDigits.delete(nameDigits)
     }
 
-    if (!matchedIdentifiers && genericPending.length > 0) {
+    if (matches.length === 0 && genericPending.length > 0) {
       const normalizedName = normalizeForNameMatch(fileName)
       const hit = genericPending.find(
         (g) => g.raw.length >= MIN_GENERIC_MATCH_LENGTH && g.normalized.length > 0 && normalizedName.includes(g.normalized)
       )
       if (hit) {
-        matchedIdentifiers = [hit.raw]
+        matches.push({ identifier: hit.raw, chave: null })
         method = 'nome'
         removeGenericMatch(hit.raw)
       }
     }
 
-    if (!matchedIdentifiers && (pendingDigits.size > 0 || genericPending.length > 0)) {
+    if (matches.length === 0 && (pendingDigits.size > 0 || genericPending.length > 0)) {
       try {
-        let content: string
         const partial = await getPartial()
-        let info = extractXmlInfo(partial.toString('utf8'))
-        content = partial.toString('utf8')
+        let content = partial.toString('utf8')
+        let info = extractXmlInfo(content)
 
-        if (info.accessKeys.length === 0 && size <= FULL_READ_CAP_BYTES && partial.length >= PARTIAL_READ_BYTES) {
+        // Um XML de lote (enviNFe, vários nfeProc concatenados) carrega dezenas de notas, e só as
+        // primeiras cabem na leitura parcial. Como não dá para saber de antemão se o arquivo é uma
+        // nota só ou um lote, sempre que a leitura parcial tiver sido truncada vale ler o resto —
+        // a chave procurada pode estar em qualquer ponto dele. O custo fica limitado pelo teto de
+        // FULL_READ_CAP_BYTES e não afeta os XMLs de nota única, que cabem inteiros na parcial.
+        if (size > partial.length && size <= FULL_READ_CAP_BYTES) {
           const full = await getFull()
           content = full.toString('utf8')
           info = extractXmlInfo(content)
         }
 
+        // Coleta TODAS as chaves pendentes presentes no arquivo, não só a primeira: um lote
+        // satisfaz vários identificadores de uma vez, cada um com sua própria chave.
         for (const key of info.accessKeys) {
-          if (pendingDigits.has(key)) {
-            matchedIdentifiers = pendingDigits.get(key)!
-            method = 'conteudo'
-            chave = key
-            docType = info.docType
+          const raws = pendingDigits.get(key)
+          if (raws) {
+            for (const raw of raws) matches.push({ identifier: raw, chave: key })
             pendingDigits.delete(key)
-            break
           }
         }
+        if (matches.length > 0) {
+          method = 'conteudo'
+          docType = info.docType
+        }
 
-        if (!matchedIdentifiers && genericPending.length > 0) {
+        // Identificadores genéricos são fuzzy (substring), então casa no máximo um por arquivo
+        // para não consumir vários de uma vez por engano.
+        if (matches.length === 0 && genericPending.length > 0) {
           const hit = genericPending.find((g) => g.raw.length >= MIN_GENERIC_MATCH_LENGTH && content.includes(g.raw))
           if (hit) {
-            matchedIdentifiers = [hit.raw]
+            matches.push({ identifier: hit.raw, chave: info.accessKeys[0] ?? null })
             method = 'conteudo'
             docType = info.docType
-            chave = info.accessKeys[0] ?? null
             removeGenericMatch(hit.raw)
           }
-        }
-
-        if (!matchedIdentifiers && info.accessKeys.length > 0) {
-          chave = info.accessKeys[0]
-          docType = info.docType
         }
       } catch (err) {
         reportError(diskPath, 'xml_invalido', `Falha ao ler ${fileName}: ${(err as Error).message}`)
@@ -199,8 +208,8 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
       }
     }
 
-    if (matchedIdentifiers) {
-      for (const identifier of matchedIdentifiers) {
+    if (matches.length > 0) {
+      for (const { identifier, chave } of matches) {
         stats.foundCount++
         const item: FoundItem = {
           id: randomUUID(),

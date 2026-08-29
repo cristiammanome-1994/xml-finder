@@ -7,6 +7,9 @@ export function ProgressPanel() {
 
   if (!searching) return null
 
+  // Não dá para saber quantos arquivos existem sem varrer a pasta inteira antes, então a barra
+  // mostra o que é conhecido e útil: quantos dos XMLs pedidos já foram localizados. O rótulo diz
+  // isso explicitamente para não ser lido como "% da pasta varrida".
   const pct =
     stats.estimatedTotal > 0 ? Math.min(100, Math.round((stats.foundCount / stats.estimatedTotal) * 100)) : 0
 
@@ -14,7 +17,9 @@ export function ProgressPanel() {
     <div className="card progress-card">
       <div className="progress-headline">
         <span>Pesquisando...</span>
-        <span className="pct">{pct}%</span>
+        <span className="pct">
+          {stats.foundCount.toLocaleString('pt-BR')} de {stats.estimatedTotal.toLocaleString('pt-BR')} localizados
+        </span>
       </div>
       <div className="progress-bar-track">
         <div className="progress-bar-fill" style={{ width: `${pct}%` }} />
