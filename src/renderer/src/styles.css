@@ -756,3 +756,55 @@ pre.xml-view {
   display: flex;
   gap: 12px;
 }
+
+.changelog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.changelog-item {
+  background: var(--muted);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+}
+.changelog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.changelog-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.changelog-title {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.changelog-desc {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  line-height: 1.55;
+}
+
+.header-btn-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.unread-dot {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--status-critical);
+  box-shadow: 0 0 0 2px var(--background);
+  pointer-events: none;
+}

@@ -11,6 +11,7 @@ import { ErrorsPanel } from './components/ErrorsPanel'
 import { ResultsTable } from './components/ResultsTable'
 import { ResultDetailDrawer } from './components/ResultDetailDrawer'
 import { HistoryPanel } from './components/HistoryPanel'
+import { UpdatesPanel } from './components/UpdatesPanel'
 import { Toast } from './components/Toast'
 
 export default function App() {
@@ -67,6 +68,7 @@ export default function App() {
       </div>
       <ResultDetailDrawer />
       <HistoryPanel />
+      <UpdatesPanel />
       <Toast />
     </div>
   )

@@ -1,11 +1,16 @@
-import { FileSearch, History, ShieldCheck } from 'lucide-react'
+import { FileSearch, History, ShieldCheck, Bell } from 'lucide-react'
 import { useStore } from '../store'
+import { LATEST_VERSION } from '../changelog'
 import { ThemeToggle } from './ThemeToggle'
 
 export function Header() {
   const showHistory = useStore((s) => s.showHistory)
   const setShowHistory = useStore((s) => s.setShowHistory)
+  const showUpdates = useStore((s) => s.showUpdates)
+  const setShowUpdates = useStore((s) => s.setShowUpdates)
+  const seenVersion = useStore((s) => s.seenVersion)
   const searching = useStore((s) => s.searching)
+  const hasUnseenUpdates = seenVersion !== LATEST_VERSION
 
   return (
     <header className="header">
@@ -35,6 +40,13 @@ export function Header() {
           <History className="icon" style={{ width: 13, height: 13 }} />
           Histórico
         </button>
+        <span className="header-btn-wrap">
+          <button className="btn ghost sm" onClick={() => setShowUpdates(!showUpdates)}>
+            <Bell className="icon" style={{ width: 13, height: 13 }} />
+            Atualizações
+          </button>
+          {hasUnseenUpdates && <span className="unread-dot" />}
+        </span>
         <ThemeToggle />
       </div>
     </header>

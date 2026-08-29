@@ -7,12 +7,23 @@ import type {
   ScanError,
   SearchStats
 } from '@shared/types'
+import { LATEST_VERSION } from './changelog'
 
 export type ResultFilter = 'todos' | 'encontrados' | 'nao_encontrados' | 'erros'
 export type Theme = 'light' | 'dark'
 
+const SEEN_VERSION_KEY = 'xml-finder-seen-version'
+
 function readInitialTheme(): Theme {
   return document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+}
+
+function readSeenVersion(): string | null {
+  try {
+    return localStorage.getItem(SEEN_VERSION_KEY)
+  } catch {
+    return null
+  }
 }
 
 export const emptyStats: SearchStats = {
@@ -41,6 +52,8 @@ interface State {
   filter: ResultFilter
   selectedItem: FoundItem | null
   showHistory: boolean
+  showUpdates: boolean
+  seenVersion: string | null
   hasSearched: boolean
   toast: string | null
   toastToken: number
@@ -52,6 +65,7 @@ interface State {
   setFilter: (v: ResultFilter) => void
   setSelectedItem: (v: FoundItem | null) => void
   setShowHistory: (v: boolean) => void
+  setShowUpdates: (v: boolean) => void
   showToast: (msg: string) => void
   toggleTheme: () => void
 
@@ -77,6 +91,8 @@ export const useStore = create<State>((set, get) => ({
   filter: 'todos',
   selectedItem: null,
   showHistory: false,
+  showUpdates: false,
+  seenVersion: readSeenVersion(),
   hasSearched: false,
   toast: null,
   toastToken: 0,
@@ -88,6 +104,17 @@ export const useStore = create<State>((set, get) => ({
   setFilter: (v) => set({ filter: v }),
   setSelectedItem: (v) => set({ selectedItem: v }),
   setShowHistory: (v) => set({ showHistory: v }),
+  setShowUpdates: (v) => {
+    set({ showUpdates: v })
+    if (v && LATEST_VERSION) {
+      try {
+        localStorage.setItem(SEEN_VERSION_KEY, LATEST_VERSION)
+      } catch {
+        // localStorage indisponível — o indicador de "não visto" só não persiste entre sessões
+      }
+      set({ seenVersion: LATEST_VERSION })
+    }
+  },
   toggleTheme: () => {
     const next: Theme = get().theme === 'dark' ? 'light' : 'dark'
     document.documentElement.classList.toggle('dark', next === 'dark')
