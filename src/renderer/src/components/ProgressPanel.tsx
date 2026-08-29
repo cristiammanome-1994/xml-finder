@@ -1,11 +1,5 @@
 import { useStore } from '../store'
-
-function fmtElapsed(ms: number): string {
-  const totalSec = Math.floor(ms / 1000)
-  const min = Math.floor(totalSec / 60)
-  const sec = totalSec % 60
-  return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
-}
+import { fmtElapsed } from '../format'
 
 export function ProgressPanel() {
   const searching = useStore((s) => s.searching)

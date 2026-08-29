@@ -15,7 +15,7 @@ function readInitialTheme(): Theme {
   return document.documentElement.classList.contains('dark') ? 'dark' : 'light'
 }
 
-const emptyStats: SearchStats = {
+export const emptyStats: SearchStats = {
   filesScanned: 0,
   xmlAnalyzed: 0,
   zipCount: 0,
@@ -43,6 +43,7 @@ interface State {
   showHistory: boolean
   hasSearched: boolean
   toast: string | null
+  toastToken: number
   theme: Theme
 
   setRootFolder: (v: string | null) => void
@@ -78,6 +79,7 @@ export const useStore = create<State>((set, get) => ({
   showHistory: false,
   hasSearched: false,
   toast: null,
+  toastToken: 0,
   theme: readInitialTheme(),
 
   setRootFolder: (v) => set({ rootFolder: v }),
@@ -93,9 +95,10 @@ export const useStore = create<State>((set, get) => ({
     set({ theme: next })
   },
   showToast: (msg) => {
-    set({ toast: msg })
+    const token = get().toastToken + 1
+    set({ toast: msg, toastToken: token })
     setTimeout(() => {
-      if (get().toast === msg) set({ toast: null })
+      if (get().toastToken === token) set({ toast: null })
     }, 2400)
   },
 
@@ -114,11 +117,10 @@ export const useStore = create<State>((set, get) => ({
 
   applyProgress: (stats) => set({ stats }),
 
-  applyFound: (item) =>
-    set((s) => ({
-      found: [...s.found, item],
-      stats: { ...s.stats, foundCount: s.found.length + 1 }
-    })),
+  // stats.foundCount não é recomputado aqui — o worker sempre manda um 'progress' logo após
+  // cada 'found', então stats fica correto no próximo applyProgress em vez de ter duas fontes
+  // de verdade para a mesma contagem.
+  applyFound: (item) => set((s) => ({ found: [...s.found, item] })),
 
   applyError: (error) => set((s) => ({ errors: [...s.errors, error] })),
 

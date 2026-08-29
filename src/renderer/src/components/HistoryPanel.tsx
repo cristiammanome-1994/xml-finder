@@ -1,14 +1,8 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
-import { useStore } from '../store'
+import { useStore, emptyStats } from '../store'
+import { fmtElapsed } from '../format'
 import type { HistoryEntry } from '@shared/types'
-
-function fmtElapsed(ms: number): string {
-  const totalSec = Math.floor(ms / 1000)
-  const min = Math.floor(totalSec / 60)
-  const sec = totalSec % 60
-  return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
-}
 
 export function HistoryPanel() {
   const show = useStore((s) => s.showHistory)
@@ -28,19 +22,18 @@ export function HistoryPanel() {
   }
 
   function reopen(entry: HistoryEntry): void {
-    const stats = {
-      filesScanned: 0,
-      xmlAnalyzed: 0,
-      zipCount: 0,
-      rarCount: 0,
-      foundCount: entry.found,
-      notFoundCount: entry.notFound,
-      errorCount: 0,
-      elapsedMs: entry.elapsedMs,
-      estimatedTotal: entry.totalIdentifiers,
-      phase: entry.cancelled ? ('cancelado' as const) : ('concluido' as const)
-    }
-    loadFromHistory(entry.results, stats, entry.rootFolder)
+    loadFromHistory(
+      entry.results,
+      {
+        ...emptyStats,
+        foundCount: entry.found,
+        notFoundCount: entry.notFound,
+        elapsedMs: entry.elapsedMs,
+        estimatedTotal: entry.totalIdentifiers,
+        phase: entry.cancelled ? 'cancelado' : 'concluido'
+      },
+      entry.rootFolder
+    )
   }
 
   return (

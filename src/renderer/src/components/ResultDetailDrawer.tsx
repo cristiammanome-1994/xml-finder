@@ -1,17 +1,8 @@
 import { useState } from 'react'
 import { Clipboard, ClipboardList, FolderOpen, Save, Eye, X } from 'lucide-react'
 import { useStore } from '../store'
+import { fmtSize, basename } from '../format'
 import { XmlViewerModal } from './XmlViewerModal'
-
-function fmtSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  return `${(bytes / 1024).toFixed(1)} KB`
-}
-
-function basename(p: string): string {
-  const parts = p.split(/[\\/]/)
-  return parts[parts.length - 1] || p
-}
 
 export function ResultDetailDrawer() {
   const item = useStore((s) => s.selectedItem)

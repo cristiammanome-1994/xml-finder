@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Download } from 'lucide-react'
 import { useStore, type ResultFilter } from '../store'
+import { fmtSize, basename } from '../format'
 import type { ResultItem } from '@shared/types'
 
 const FILTERS: { value: ResultFilter; label: string }[] = [
@@ -9,11 +10,6 @@ const FILTERS: { value: ResultFilter; label: string }[] = [
   { value: 'nao_encontrados', label: 'Não encontrados' },
   { value: 'erros', label: 'Erros' }
 ]
-
-function fmtSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  return `${(bytes / 1024).toFixed(1)} KB`
-}
 
 export function ResultsTable() {
   const found = useStore((s) => s.found)
@@ -179,9 +175,4 @@ function ErrorsTable() {
       </tbody>
     </table>
   )
-}
-
-function basename(p: string): string {
-  const parts = p.split(/[\\/]/)
-  return parts[parts.length - 1] || p
 }
