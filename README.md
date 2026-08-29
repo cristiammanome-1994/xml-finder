@@ -98,7 +98,22 @@ src/
 2. Para cada arquivo: classifica por extensão e, se necessário, por assinatura de bytes (`PK\x03\x04` para ZIP, `Rar!` para RAR, `<?xml`/`<` para XML — mesmo sem a extensão correta).
 3. XML solto ou dentro de ZIP/RAR: primeiro tenta casar pelo **nome** (chave de 44 dígitos extraída do nome, ou trecho de nome); se não achar, lê um trecho do **conteúdo** (com fallback para o arquivo inteiro se necessário) e procura a chave de acesso.
 4. ZIP/RAR encontrados dentro de outro ZIP/RAR são abertos recursivamente até a profundidade configurada, sempre a partir de um buffer em memória — nunca extraindo o arquivo compactado inteiro para disco.
-5. Assim que todas as chaves pedidas são encontradas, a busca para imediatamente (não continua varrendo o resto da base).
+5. Um mesmo arquivo pode satisfazer vários identificadores de uma vez — XMLs de lote (`enviNFe`, vários `nfeProc` concatenados) carregam dezenas de notas, e todas as chaves procuradas presentes nele são localizadas.
+6. Assim que todas as chaves pedidas são encontradas, a busca para imediatamente (não continua varrendo o resto da base).
+
+## Escala testada
+
+Medições reais (não estimativas), para dar noção do comportamento em volume:
+
+| Cenário | Resultado |
+|---|---|
+| ZIP de produção com 4.580 XMLs, buscando 3 chaves | ~1,5 s |
+| RAR com 400 XMLs, todas localizadas por conteúdo | ~0,2 s |
+| XML de lote com 300 notas em um único arquivo | todas as chaves localizadas |
+| Renderizar 1.000 resultados na tabela | ~0,2 s |
+| Renderizar 10.000 resultados na tabela | ~2,1 s (uma vez); trocar de filtro depois: ~5 ms; ~82 MB de memória |
+
+A tabela de resultados não usa virtualização: a 10.000 linhas ela leva cerca de 2 s para montar e permanece fluida depois disso, o que foi considerado aceitável frente à complexidade que a virtualização acrescentaria.
 
 ## Desenvolvimento
 
