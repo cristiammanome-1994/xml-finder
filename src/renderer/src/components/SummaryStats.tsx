@@ -8,7 +8,8 @@ import {
   PackageOpen,
   Folder,
   AlertTriangle,
-  OctagonAlert
+  OctagonAlert,
+  Zap
 } from 'lucide-react'
 import { useStore } from '../store'
 
@@ -58,12 +59,14 @@ export function SummaryStats() {
     let zip = 0
     let rar = 0
     let folder = 0
+    let viaIndice = 0
     for (const f of found) {
       if (f.storageType === 'ZIP') zip++
       else if (f.storageType === 'RAR') rar++
       else folder++
+      if (f.matchMethod === 'indice') viaIndice++
     }
-    return { zip, rar, folder }
+    return { zip, rar, folder, viaIndice }
   }, [found])
 
   if (!hasSearched) return null
@@ -88,6 +91,9 @@ export function SummaryStats() {
         <StatCard label="Dentro de ZIP" value={breakdown.zip} icon={FileArchive} />
         <StatCard label="Dentro de RAR" value={breakdown.rar} icon={PackageOpen} />
         <StatCard label="Em pastas" value={breakdown.folder} icon={Folder} />
+        {breakdown.viaIndice > 0 && (
+          <StatCard label="Via índice (cache)" value={breakdown.viaIndice} icon={Zap} tone="good" />
+        )}
         {errors.length > 0 && <StatCard label="Erros" value={errors.length} icon={AlertTriangle} tone="warning" />}
       </div>
     </>

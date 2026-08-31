@@ -30,7 +30,7 @@ const DATA_EMISSAO_RE = /<dhEmi>\s*([^<\s][^<]*)<\/dhEmi>|<dEmi>\s*([^<\s][^<]*)
 
 const DOC_TYPE_TAGS: Array<[RegExp, DocumentType]> = [
   [/<infNFe[\s>]/, 'NFe'],
-  [/<infCTe[\s>]/, 'CTe'],
+  [/<infCte[\s>]/, 'CTe'],
   [/<infMDFe[\s>]/, 'MDFe'],
   [/<infNFSe[\s>]|<InfNfse[\s>]/i, 'NFSe']
 ]

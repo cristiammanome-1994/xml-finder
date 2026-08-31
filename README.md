@@ -29,10 +29,12 @@ Baixe a versão mais recente em **[Releases](../../releases/latest)**:
 - **Progresso em tempo real** (arquivos analisados, XMLs analisados, ZIPs, RARs, encontrados, tempo decorrido) com botão de cancelar.
 - **Resultados filtráveis** (Todos / Encontrados / Não encontrados / Erros) com resumo (dentro de ZIP, dentro de RAR, em pastas soltas).
 - Para cada XML encontrado: **copiar caminho**, **copiar caminho completo** (incluindo caminho interno no ZIP/RAR), **abrir a pasta no Explorer**, **extrair só aquele XML** (sem descompactar o resto) e **visualizar o XML formatado**.
-- **Exportação para Excel e CSV** dos resultados, e exportação separada só dos **não encontrados**.
+- **Exportação para Excel e CSV** dos resultados (incluindo CNPJ do emitente, número, série e data de emissão de cada nota), e exportação separada só dos **não encontrados**.
 - **Histórico de pesquisas** local, com opção de reabrir uma pesquisa anterior.
+- **Índice local de pesquisas repetidas**: a cada busca, o app lembra onde cada chave foi encontrada na pasta; pesquisar de novo pela mesma chave na mesma pasta (sem que ela tenha mudado) responde quase instantaneamente, sem varrer o disco de novo.
 - **Tema claro/escuro**, alternável e persistido entre sessões.
 - Continua a busca mesmo diante de **ZIP/RAR corrompido, XML malformado, arquivo protegido por senha ou sem permissão de leitura** — registra como erro e segue em frente.
+- Recusa descompactar entradas de ZIP/RAR aninhadas com tamanho descomprimido acima de 200MB, evitando consumo descontrolado de memória diante de arquivos compactados maliciosos ("zip bomb").
 
 ## Como usar
 
@@ -59,8 +61,9 @@ src/
 │       ├── classify.ts       # Classifica arquivo por extensão e/ou assinatura de bytes
 │       ├── zipReader.ts      # Leitura de ZIP em streaming (yauzl) — sem extrair tudo
 │       ├── rarReader.ts      # Leitura de RAR via WASM (node-unrar-js) — sem depender de unrar.exe
-│       ├── xmlMatcher.ts     # Extração de chave/Id/CNPJ do conteúdo XML via regex leve
+│       ├── xmlMatcher.ts     # Extração de chave/Id/CNPJ/número/série/data por nota, via regex leve
 │       ├── extractor.ts      # Extração de um único arquivo de dentro de ZIP/RAR aninhados
+│       ├── searchIndex.ts    # Cache local (SQLite via node:sqlite) de "chave -> onde foi achada"
 │       ├── exporter.ts       # Exportação para Excel/CSV (carregado sob demanda)
 │       └── history.ts        # Histórico de pesquisas (JSON local)
 ├── preload/
@@ -87,6 +90,7 @@ src/
 | Build | [electron-vite](https://electron-vite.org/) (Vite) + TypeScript |
 | Leitura de ZIP | [yauzl](https://github.com/thejoshwolfe/yauzl) (streaming, entrada por entrada) |
 | Leitura de RAR | [node-unrar-js](https://github.com/YuJianrong/node-unrar.js) (WASM, sem `unrar.exe` externo) |
+| Índice/cache local | [`node:sqlite`](https://nodejs.org/api/sqlite.html) (nativo do Node/Electron, sem dependência extra) |
 | Exportação | [exceljs](https://github.com/exceljs/exceljs) (Excel), gerador CSV próprio |
 | Ícones | [lucide-react](https://lucide.dev/) |
 | Fonte | [Geist](https://vercel.com/font) (empacotada localmente, sem depender de rede) |
@@ -98,8 +102,9 @@ src/
 2. Para cada arquivo: classifica por extensão e, se necessário, por assinatura de bytes (`PK\x03\x04` para ZIP, `Rar!` para RAR, `<?xml`/`<` para XML — mesmo sem a extensão correta).
 3. XML solto ou dentro de ZIP/RAR: primeiro tenta casar pelo **nome** (chave de 44 dígitos extraída do nome, ou trecho de nome); se não achar, lê um trecho do **conteúdo** (com fallback para o arquivo inteiro se necessário) e procura a chave de acesso.
 4. ZIP/RAR encontrados dentro de outro ZIP/RAR são abertos recursivamente até a profundidade configurada, sempre a partir de um buffer em memória — nunca extraindo o arquivo compactado inteiro para disco.
-5. Um mesmo arquivo pode satisfazer vários identificadores de uma vez — XMLs de lote (`enviNFe`, vários `nfeProc` concatenados) carregam dezenas de notas, e todas as chaves procuradas presentes nele são localizadas.
+5. Um mesmo arquivo pode satisfazer vários identificadores de uma vez — XMLs de lote (`enviNFe`, vários `nfeProc` concatenados) carregam dezenas de notas, e todas as chaves procuradas presentes nele são localizadas, cada uma com seu próprio CNPJ/número/série/data (extraídos por nota, não do arquivo como um todo).
 6. Assim que todas as chaves pedidas são encontradas, a busca para imediatamente (não continua varrendo o resto da base).
+7. Antes de varrer o disco, cada chave é checada contra o índice local dessa pasta; se já foi encontrada numa busca anterior e o arquivo/contêiner onde estava não mudou (mesmo mtime), o resultado vem direto do índice sem tocar no disco.
 
 ## Escala testada
 
@@ -133,6 +138,7 @@ npm run dev
 | `npm run dev` | Sobe o app em modo desenvolvimento (hot-reload) |
 | `npm run build` | Build de produção (main + preload + renderer) em `out/` |
 | `npm run typecheck` | Checagem de tipos (main e renderer) |
+| `npm test` | Roda a suíte de testes (`node --test`) da lógica pura do motor de busca |
 | `npm run dist` | Build de produção + empacota instalador (`.exe` NSIS) e versão portable em `release/` |
 
 ## Limitações conhecidas

@@ -15,6 +15,22 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.5.0',
+    date: '2026-08-31',
+    title: 'Índice de pesquisas e mais dados por nota encontrada',
+    category: 'novidade',
+    description:
+      'Pesquisas repetidas na mesma pasta agora ficam quase instantâneas: o XML Finder guarda um índice local de "chave encontrada em tal lugar" e consulta ele antes de varrer o disco de novo — se nada mudou na pasta desde a última vez, o resultado vem na hora (aparece como "Via índice" no resumo da pesquisa; dá para limpar esse índice na tela de Histórico se a pasta mudou muito). Buscas em pastas de rede também ficam mais rápidas, já que várias verificações de arquivo agora acontecem em paralelo em vez de uma por vez. Além disso, cada nota fiscal encontrada agora mostra (e exporta para Excel/CSV) o CNPJ do emitente, número, série e data de emissão, extraídos corretamente mesmo em arquivos de lote com várias notas diferentes no mesmo XML.'
+  },
+  {
+    version: '1.4.1',
+    date: '2026-08-31',
+    title: 'Proteções contra arquivos compactados maliciosos',
+    category: 'correcao',
+    description:
+      'Um ZIP ou RAR aninhado que declarasse um tamanho descomprimido muito grande (a partir de poucos bytes reais) não era mais recusado antes de ser aberto, criando risco de consumo descontrolado de memória. Agora esse tipo de arquivo aninhado é ignorado com um aviso em vez de ser processado. A extração de um único XML também passou a validar explicitamente o nome do arquivo de destino, e selecionar uma pasta raiz inexistente (ou que não é mais uma pasta) agora mostra um erro claro em vez de falhar internamente.'
+  },
+  {
     version: '1.4.0',
     date: '2026-08-29',
     title: 'Painel de Atualizações',

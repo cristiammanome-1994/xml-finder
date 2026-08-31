@@ -5,6 +5,7 @@
     "src/preload/**/*",
     "src/shared/**/*"
   ],
+  "exclude": ["**/*.test.ts"],
   "compilerOptions": {
     "composite": true,
     "types": ["electron-vite/node", "node"],
