@@ -29,6 +29,16 @@ const PROGRESS_THROTTLE_MS = 150
 const ZIP_ENTRY_SNIFF_CAP = 10 * 1024 * 1024
 /** Identificadores genéricos (não-chave) mais curtos que isso são propensos demais a falso positivo por substring. */
 const MIN_GENERIC_MATCH_LENGTH = 6
+/**
+ * Teto de tamanho descomprimido para descer em um ZIP/RAR aninhado. Sem isso, uma entrada
+ * aninhada maliciosa poderia declarar um tamanho descomprimido enorme a partir de poucos bytes
+ * comprimidos (zip bomb) e forçar alocação descontrolada de memória durante a descida recursiva.
+ */
+const MAX_NESTED_ARCHIVE_BYTES = 200 * 1024 * 1024
+
+function formatMegabytes(bytes: number): string {
+  return `${Math.round(bytes / (1024 * 1024))}MB`
+}
 
 interface GenericPending {
   raw: string
@@ -355,6 +365,12 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
           )
           continue
         }
+        if (entry.size > MAX_NESTED_ARCHIVE_BYTES) {
+          limitationNotes.add(
+            `Arquivo aninhado "${entry.fileName}" excede o limite de ${formatMegabytes(MAX_NESTED_ARCHIVE_BYTES)} para descompactação e foi ignorado.`
+          )
+          continue
+        }
         try {
           const buf = await zip.readEntryFull(entry)
           const nextChain = [...parentChain, { containerType: 'zip' as const, entryPath: entry.fileName }]
@@ -392,6 +408,13 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
       }
       const kind = resolveEntryKind(entry.fileName)
       if (kind === 'other') continue
+      if ((kind === 'zip' || kind === 'rar') && entry.size > MAX_NESTED_ARCHIVE_BYTES) {
+        stats[kind === 'zip' ? 'zipCount' : 'rarCount']++
+        limitationNotes.add(
+          `Arquivo aninhado "${entry.fileName}" excede o limite de ${formatMegabytes(MAX_NESTED_ARCHIVE_BYTES)} para descompactação e foi ignorado.`
+        )
+        continue
+      }
       candidates.push({ entry, kind })
     }
     if (candidates.length === 0) return

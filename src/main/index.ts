@@ -71,8 +71,8 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('key:validate', (_e, identifier: string) => validateAccessKey(identifier))
 
-  ipcMain.handle('search:start', (_e, options: SearchOptions) => {
-    startSearch(options)
+  ipcMain.handle('search:start', async (_e, options: SearchOptions) => {
+    await startSearch(options)
   })
 
   ipcMain.handle('search:cancel', () => {
@@ -136,7 +136,7 @@ function emitFatalSearchError(message: string): void {
   } satisfies SearchWorkerMessage)
 }
 
-function startSearch(options: SearchOptions): void {
+async function startSearch(options: SearchOptions): Promise<void> {
   if (activeWorker) {
     // Remove os listeners ANTES de terminar: terminate() para o worker "assim que possível",
     // não instantaneamente, e sem isso uma mensagem que ele já estava enviando poderia chegar
@@ -145,6 +145,17 @@ function startSearch(options: SearchOptions): void {
     activeWorker.postMessage({ type: 'cancel' })
     activeWorker.terminate()
     activeWorker = null
+  }
+
+  try {
+    const st = await fs.promises.stat(options.rootFolder)
+    if (!st.isDirectory()) {
+      emitFatalSearchError(`O caminho selecionado não é uma pasta: ${options.rootFolder}`)
+      return
+    }
+  } catch {
+    emitFatalSearchError(`Pasta não encontrada: ${options.rootFolder}`)
+    return
   }
 
   const workerPath = path.join(__dirname, 'searchWorker.js')

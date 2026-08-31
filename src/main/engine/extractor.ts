@@ -54,11 +54,19 @@ export async function extractSingleFile(
   const content = await readLocationContent(location)
   await fs.promises.mkdir(destinationFolder, { recursive: true })
 
-  let destPath = path.join(destinationFolder, fileName)
+  // Sempre reduz a apenas o nome do arquivo, descartando qualquer componente de caminho —
+  // barreira explícita contra zip-slip/path traversal, em vez de depender de fileName já
+  // vir "limpo" de quem chamou.
+  const safeName = path.basename(fileName)
+  if (!safeName || safeName === '.' || safeName === '..') {
+    throw new Error(`Nome de arquivo inválido para extração: ${fileName}`)
+  }
+
+  let destPath = path.join(destinationFolder, safeName)
   let counter = 1
   while (await pathExists(destPath)) {
-    const ext = path.extname(fileName)
-    const base = path.basename(fileName, ext)
+    const ext = path.extname(safeName)
+    const base = path.basename(safeName, ext)
     destPath = path.join(destinationFolder, `${base} (${counter})${ext}`)
     counter++
   }
