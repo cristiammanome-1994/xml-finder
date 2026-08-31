@@ -18,7 +18,7 @@ import { walkFolder } from './fsWalker'
 import { classifyByExtension, sniffFileKind, classifyBuffer, type FileKind } from './classify'
 import { openZipFromFile, openZipFromBuffer, type OpenZip, type ZipEntryInfo } from './zipReader'
 import { openRarFromBuffer, type OpenRarFile, type RarEntryInfo } from './rarReader'
-import { extractXmlInfo } from './xmlMatcher'
+import { extractXmlInfo, type XmlNoteMetadata } from './xmlMatcher'
 import { onlyDigits, normalizeForNameMatch } from '@shared/keyUtils'
 import { openSearchIndex, type SearchIndex } from './searchIndex'
 
@@ -168,6 +168,7 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
     const matches: CandidateMatch[] = []
     let method: MatchMethod = 'nao_encontrado'
     let docType: DocumentType = 'Desconhecido'
+    let noteMeta: Map<string, XmlNoteMetadata> | null = null
 
     const nameDigits = onlyDigits(fileName)
     if (nameDigits.length === 44 && pendingDigits.has(nameDigits)) {
@@ -217,6 +218,7 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
         if (matches.length > 0) {
           method = 'conteudo'
           docType = info.docType
+          noteMeta = info.notes
         }
 
         // Identificadores genéricos são fuzzy (substring), então casa no máximo um por arquivo
@@ -227,6 +229,7 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
             matches.push({ identifier: hit.raw, chave: info.accessKeys[0] ?? null })
             method = 'conteudo'
             docType = info.docType
+            noteMeta = info.notes
             removeGenericMatch(hit.raw)
           }
         }
@@ -236,9 +239,23 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
       }
     }
 
+    // Enriquecimento best-effort: quando o match foi por nome, o conteúdo nunca foi lido, então
+    // docType e os metadados de exibição (CNPJ/número/série/data) ficariam vazios. Uma leitura
+    // parcial aqui não afeta se o item é reportado como encontrado — só tenta preenchê-los.
+    if (method === 'nome' && matches.some((m) => m.chave)) {
+      try {
+        const info = extractXmlInfo((await getPartial()).toString('utf8'))
+        if (docType === 'Desconhecido') docType = info.docType
+        noteMeta = info.notes
+      } catch {
+        // best-effort — falha aqui não deve impedir o resultado já encontrado por nome
+      }
+    }
+
     if (matches.length > 0) {
       for (const { identifier, chave } of matches) {
         stats.foundCount++
+        const meta = chave ? noteMeta?.get(chave) : undefined
         const item: FoundItem = {
           id: randomUUID(),
           identifier,
@@ -250,7 +267,11 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
           storageType: storageTypeFor(chain),
           matchMethod: method,
           sizeBytes: size,
-          modifiedAt: mtimeMs
+          modifiedAt: mtimeMs,
+          emitCnpj: meta?.emitCnpj ?? null,
+          numero: meta?.numero ?? null,
+          serie: meta?.serie ?? null,
+          dataEmissao: meta?.dataEmissao ?? null
         }
         hooks.onFound(item)
       }
@@ -260,6 +281,7 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
           const mtime = await containerMtimeOf(diskPath)
           if (mtime !== null) {
             for (const { chave } of cacheable) {
+              const meta = noteMeta?.get(chave!)
               searchIndex.remember(options.rootFolder, chave!, {
                 diskPath,
                 chain,
@@ -267,7 +289,11 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
                 sizeBytes: size,
                 docType,
                 storageType: storageTypeFor(chain),
-                containerMtimeMs: mtime
+                containerMtimeMs: mtime,
+                emitCnpj: meta?.emitCnpj ?? null,
+                numero: meta?.numero ?? null,
+                serie: meta?.serie ?? null,
+                dataEmissao: meta?.dataEmissao ?? null
               })
             }
           }
@@ -532,7 +558,11 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
           storageType: cached.storageType,
           matchMethod: 'indice',
           sizeBytes: cached.sizeBytes,
-          modifiedAt: null
+          modifiedAt: null,
+          emitCnpj: cached.emitCnpj,
+          numero: cached.numero,
+          serie: cached.serie,
+          dataEmissao: cached.dataEmissao
         })
       }
     }

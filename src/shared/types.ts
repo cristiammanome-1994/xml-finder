@@ -38,6 +38,11 @@ export interface FoundItem {
   matchMethod: MatchMethod
   sizeBytes: number
   modifiedAt: number | null
+  /** Metadados extraídos do conteúdo, quando disponíveis (hoje só para NFe/NFCe). Best-effort — null quando não encontrado no XML. */
+  emitCnpj: string | null
+  numero: string | null
+  serie: string | null
+  dataEmissao: string | null
 }
 
 export interface NotFoundItem {

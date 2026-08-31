@@ -13,6 +13,10 @@ interface RowData {
   Status: string
   Chave: string
   'Nome do XML': string
+  'CNPJ emitente': string
+  Número: string
+  Série: string
+  'Data de emissão': string
   'Caminho físico': string
   'Arquivo compactado': string
   'Caminho interno': string
@@ -28,6 +32,10 @@ function toRow(item: ResultItem): RowData {
       Status: 'Não encontrado',
       Chave: item.identifier,
       'Nome do XML': '',
+      'CNPJ emitente': '',
+      Número: '',
+      Série: '',
+      'Data de emissão': '',
       'Caminho físico': '',
       'Arquivo compactado': '',
       'Caminho interno': '',
@@ -43,6 +51,10 @@ function toRow(item: ResultItem): RowData {
     Status: 'Encontrado',
     Chave: item.chave ?? item.identifier,
     'Nome do XML': item.fileName,
+    'CNPJ emitente': item.emitCnpj ?? '',
+    Número: item.numero ?? '',
+    Série: item.serie ?? '',
+    'Data de emissão': item.dataEmissao ?? '',
     'Caminho físico': item.location.diskPath,
     'Arquivo compactado': loc.arquivoCompactado,
     'Caminho interno': loc.caminhoInterno,
@@ -62,6 +74,10 @@ const COLUMNS: Array<keyof RowData> = [
   'Status',
   'Chave',
   'Nome do XML',
+  'CNPJ emitente',
+  'Número',
+  'Série',
+  'Data de emissão',
   'Caminho físico',
   'Arquivo compactado',
   'Caminho interno',

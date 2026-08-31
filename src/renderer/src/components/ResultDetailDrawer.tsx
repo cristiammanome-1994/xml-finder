@@ -66,6 +66,29 @@ export function ResultDetailDrawer() {
           <div className="detail-value">{item.docType}</div>
         </div>
 
+        {(item.numero || item.serie) && (
+          <div className="detail-group">
+            <div className="detail-label">Número / Série</div>
+            <div className="detail-value mono">
+              {item.numero ?? '—'} / {item.serie ?? '—'}
+            </div>
+          </div>
+        )}
+
+        {item.emitCnpj && (
+          <div className="detail-group">
+            <div className="detail-label">CNPJ do emitente</div>
+            <div className="detail-value mono">{item.emitCnpj}</div>
+          </div>
+        )}
+
+        {item.dataEmissao && (
+          <div className="detail-group">
+            <div className="detail-label">Data de emissão</div>
+            <div className="detail-value">{item.dataEmissao}</div>
+          </div>
+        )}
+
         <div className="detail-group">
           <div className="detail-label">Localização</div>
           <div className="detail-value mono">{item.location.diskPath}</div>

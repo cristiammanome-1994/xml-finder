@@ -22,6 +22,10 @@ export interface CachedFind {
   docType: DocumentType
   storageType: StorageType
   containerMtimeMs: number
+  emitCnpj: string | null
+  numero: string | null
+  serie: string | null
+  dataEmissao: string | null
 }
 
 export interface SearchIndex {
@@ -52,15 +56,27 @@ export function openSearchIndex(userDataDir: string): SearchIndex | null {
         storage_type TEXT NOT NULL,
         container_mtime_ms REAL NOT NULL,
         updated_at INTEGER NOT NULL,
+        emit_cnpj TEXT,
+        numero TEXT,
+        serie TEXT,
+        data_emissao TEXT,
         PRIMARY KEY (root_folder, access_key)
       )
     `)
+    // Migração leve para bancos criados antes destas colunas existirem — ignora erro de coluna duplicada.
+    for (const col of ['emit_cnpj TEXT', 'numero TEXT', 'serie TEXT', 'data_emissao TEXT']) {
+      try {
+        db.exec(`ALTER TABLE indexed_key ADD COLUMN ${col}`)
+      } catch {
+        // coluna já existe
+      }
+    }
 
     const selectStmt = db.prepare('SELECT * FROM indexed_key WHERE root_folder = ? AND access_key = ?')
     const upsertStmt = db.prepare(`
       INSERT INTO indexed_key
-        (root_folder, access_key, disk_path, chain_json, file_name, size_bytes, doc_type, storage_type, container_mtime_ms, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (root_folder, access_key, disk_path, chain_json, file_name, size_bytes, doc_type, storage_type, container_mtime_ms, updated_at, emit_cnpj, numero, serie, data_emissao)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(root_folder, access_key) DO UPDATE SET
         disk_path = excluded.disk_path,
         chain_json = excluded.chain_json,
@@ -69,7 +85,11 @@ export function openSearchIndex(userDataDir: string): SearchIndex | null {
         doc_type = excluded.doc_type,
         storage_type = excluded.storage_type,
         container_mtime_ms = excluded.container_mtime_ms,
-        updated_at = excluded.updated_at
+        updated_at = excluded.updated_at,
+        emit_cnpj = excluded.emit_cnpj,
+        numero = excluded.numero,
+        serie = excluded.serie,
+        data_emissao = excluded.data_emissao
     `)
 
     return {
@@ -84,7 +104,11 @@ export function openSearchIndex(userDataDir: string): SearchIndex | null {
             sizeBytes: Number(row.size_bytes),
             docType: row.doc_type as DocumentType,
             storageType: row.storage_type as StorageType,
-            containerMtimeMs: Number(row.container_mtime_ms)
+            containerMtimeMs: Number(row.container_mtime_ms),
+            emitCnpj: (row.emit_cnpj as string | null) ?? null,
+            numero: (row.numero as string | null) ?? null,
+            serie: (row.serie as string | null) ?? null,
+            dataEmissao: (row.data_emissao as string | null) ?? null
           }
         } catch {
           return null
@@ -102,7 +126,11 @@ export function openSearchIndex(userDataDir: string): SearchIndex | null {
             entry.docType,
             entry.storageType,
             entry.containerMtimeMs,
-            Date.now()
+            Date.now(),
+            entry.emitCnpj,
+            entry.numero,
+            entry.serie,
+            entry.dataEmissao
           )
         } catch {
           // cache é best-effort — uma falha ao gravar não deve afetar a busca em andamento
