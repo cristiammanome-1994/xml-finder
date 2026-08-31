@@ -113,6 +113,11 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('history:clear', () => clearHistory(app.getPath('userData')))
+
+  ipcMain.handle('index:clear', async () => {
+    const { clearSearchIndex } = await import('./engine/searchIndex')
+    await clearSearchIndex(app.getPath('userData'))
+  })
 }
 
 /** Emite um 'done' sintético para a renderer sempre que a pesquisa não pôde nem começar de verdade. */
@@ -187,5 +192,5 @@ async function startSearch(options: SearchOptions): Promise<void> {
     if (activeWorker === worker) activeWorker = null
   })
 
-  worker.postMessage({ type: 'start', options })
+  worker.postMessage({ type: 'start', options: { ...options, userDataDir: app.getPath('userData') } })
 }

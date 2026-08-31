@@ -8,6 +8,7 @@ export function HistoryPanel() {
   const show = useStore((s) => s.showHistory)
   const setShow = useStore((s) => s.setShowHistory)
   const loadFromHistory = useStore((s) => s.loadFromHistory)
+  const showToast = useStore((s) => s.showToast)
   const [entries, setEntries] = useState<HistoryEntry[]>([])
 
   useEffect(() => {
@@ -19,6 +20,11 @@ export function HistoryPanel() {
   async function handleClear(): Promise<void> {
     await window.api.clearHistory()
     setEntries([])
+  }
+
+  async function handleClearIndex(): Promise<void> {
+    await window.api.clearSearchIndex()
+    showToast('Índice de pesquisa limpo')
   }
 
   function reopen(entry: HistoryEntry): void {
@@ -76,6 +82,17 @@ export function HistoryPanel() {
             </button>
           </>
         )}
+
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+          <div style={{ color: 'var(--muted-foreground)', fontSize: 12.5, marginBottom: 8 }}>
+            O XML Finder guarda um índice local por pasta pesquisada, para achar chaves já vistas
+            antes quase instantaneamente. Se a pasta mudou muito (arquivos movidos/renomeados em massa),
+            limpar o índice força a próxima pesquisa a varrer tudo de novo do zero.
+          </div>
+          <button className="btn block" onClick={handleClearIndex}>
+            Limpar índice de pesquisa
+          </button>
+        </div>
       </div>
     </div>
   )

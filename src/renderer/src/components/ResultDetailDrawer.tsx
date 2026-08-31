@@ -94,7 +94,11 @@ export function ResultDetailDrawer() {
         <div className="detail-group">
           <div className="detail-label">Localizado por</div>
           <div className="detail-value">
-            {item.matchMethod === 'nome' ? 'Nome do arquivo' : 'Conteúdo do XML'}
+            {item.matchMethod === 'nome'
+              ? 'Nome do arquivo'
+              : item.matchMethod === 'indice'
+                ? 'Índice (pesquisa anterior nesta pasta)'
+                : 'Conteúdo do XML'}
           </div>
         </div>
 

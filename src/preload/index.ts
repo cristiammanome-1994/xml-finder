@@ -36,7 +36,9 @@ const api = {
   listHistory: (): Promise<HistoryEntry[]> => ipcRenderer.invoke('history:list'),
   appendHistory: (entry: Omit<HistoryEntry, 'id' | 'date'>): Promise<HistoryEntry[]> =>
     ipcRenderer.invoke('history:append', entry),
-  clearHistory: (): Promise<void> => ipcRenderer.invoke('history:clear')
+  clearHistory: (): Promise<void> => ipcRenderer.invoke('history:clear'),
+
+  clearSearchIndex: (): Promise<void> => ipcRenderer.invoke('index:clear')
 }
 
 contextBridge.exposeInMainWorld('api', api)

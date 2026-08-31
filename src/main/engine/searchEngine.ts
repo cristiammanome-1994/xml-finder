@@ -20,6 +20,7 @@ import { openZipFromFile, openZipFromBuffer, type OpenZip, type ZipEntryInfo } f
 import { openRarFromBuffer, type OpenRarFile, type RarEntryInfo } from './rarReader'
 import { extractXmlInfo } from './xmlMatcher'
 import { onlyDigits, normalizeForNameMatch } from '@shared/keyUtils'
+import { openSearchIndex, type SearchIndex } from './searchIndex'
 
 const PARTIAL_READ_BYTES = 8 * 1024
 // Teto para ler um XML inteiro atrás da chave. Precisa acomodar arquivos de lote (dezenas/centenas
@@ -136,6 +137,23 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
     return chain[0].containerType === 'zip' ? 'ZIP' : 'RAR'
   }
 
+  // Cache local de "chave -> onde foi encontrada da última vez" nesta pasta raiz (ver searchIndex.ts).
+  // Puramente uma otimização: se indisponível, a busca segue normalmente sem ele.
+  const searchIndex: SearchIndex | null = options.userDataDir ? openSearchIndex(options.userDataDir) : null
+  const containerMtimeCache = new Map<string, number | null>()
+
+  async function containerMtimeOf(diskPath: string): Promise<number | null> {
+    if (containerMtimeCache.has(diskPath)) return containerMtimeCache.get(diskPath)!
+    try {
+      const stat = await fs.promises.stat(diskPath)
+      containerMtimeCache.set(diskPath, stat.mtimeMs)
+      return stat.mtimeMs
+    } catch {
+      containerMtimeCache.set(diskPath, null)
+      return null
+    }
+  }
+
   async function tryMatchCandidate(
     fileName: string,
     getPartial: () => Promise<Buffer>,
@@ -235,6 +253,25 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
           modifiedAt: mtimeMs
         }
         hooks.onFound(item)
+      }
+      if (searchIndex) {
+        const cacheable = matches.filter((m) => m.chave)
+        if (cacheable.length > 0) {
+          const mtime = await containerMtimeOf(diskPath)
+          if (mtime !== null) {
+            for (const { chave } of cacheable) {
+              searchIndex.remember(options.rootFolder, chave!, {
+                diskPath,
+                chain,
+                fileName,
+                sizeBytes: size,
+                docType,
+                storageType: storageTypeFor(chain),
+                containerMtimeMs: mtime
+              })
+            }
+          }
+        }
       }
       emitProgress()
     }
@@ -464,6 +501,44 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
     return 'other'
   }
 
+  // --- Fase de cache: resolve o que já foi visto numa busca anterior nesta mesma pasta, antes
+  // de tocar no disco. Se todas as chaves pedidas forem cache-hit, a varredura abaixo nem chega
+  // a rodar (allResolved() já é true no primeiro isCancelled()||allResolved() checado).
+  if (searchIndex && pendingDigits.size > 0) {
+    for (const [key, raws] of [...pendingDigits]) {
+      const cached = searchIndex.lookup(options.rootFolder, key)
+      if (!cached) continue
+
+      let stillValid = false
+      try {
+        const stat = await fs.promises.stat(cached.diskPath)
+        stillValid = stat.mtimeMs === cached.containerMtimeMs
+      } catch {
+        stillValid = false
+      }
+      if (!stillValid) continue
+
+      pendingDigits.delete(key)
+      for (const raw of raws) {
+        stats.foundCount++
+        hooks.onFound({
+          id: randomUUID(),
+          identifier: raw,
+          status: 'encontrado',
+          fileName: cached.fileName,
+          chave: key,
+          docType: cached.docType,
+          location: buildLocation(cached.diskPath, cached.chain),
+          storageType: cached.storageType,
+          matchMethod: 'indice',
+          sizeBytes: cached.sizeBytes,
+          modifiedAt: null
+        })
+      }
+    }
+    emitProgress(true)
+  }
+
   // --- Passagem principal: percorre a pasta raiz ---
   try {
     for await (const file of walkFolder(
@@ -512,6 +587,7 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
   } finally {
     stats.phase = hooks.isCancelled() ? 'cancelado' : 'concluido'
     stats.elapsedMs = Date.now() - startedAt
+    searchIndex?.close()
   }
 
   const notFound: NotFoundItem[] = []

@@ -49,7 +49,12 @@ function toRow(item: ResultItem): RowData {
     Tipo: item.storageType,
     'Tamanho (KB)': (item.sizeBytes / 1024).toFixed(1),
     'Data de modificação': item.modifiedAt ? new Date(item.modifiedAt).toLocaleString('pt-BR') : '',
-    'Observação/Erro': item.matchMethod === 'conteudo' ? 'Localizado pelo conteúdo do XML' : ''
+    'Observação/Erro':
+      item.matchMethod === 'conteudo'
+        ? 'Localizado pelo conteúdo do XML'
+        : item.matchMethod === 'indice'
+          ? 'Localizado via índice de pesquisa anterior'
+          : ''
   }
 }
 

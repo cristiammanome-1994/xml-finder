@@ -22,7 +22,7 @@ export interface FileLocation {
 
 export type DocumentType = 'NFe' | 'NFCe' | 'CTe' | 'MDFe' | 'NFSe' | 'EFD' | 'Desconhecido'
 
-export type MatchMethod = 'nome' | 'conteudo' | 'nao_encontrado'
+export type MatchMethod = 'nome' | 'conteudo' | 'indice' | 'nao_encontrado'
 
 export type StorageType = 'Pasta' | 'ZIP' | 'RAR'
 
@@ -61,6 +61,8 @@ export interface SearchOptions {
   rootFolder: string
   identifiers: string[]
   maxDepth: ArchiveDepthOption
+  /** Preenchido pelo processo main (app.getPath('userData')) antes de enviar ao worker — usado só para localizar o índice/cache local. */
+  userDataDir?: string
 }
 
 export interface SearchStats {
