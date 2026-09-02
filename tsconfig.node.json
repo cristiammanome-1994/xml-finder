@@ -5,9 +5,11 @@
     "src/preload/**/*",
     "src/shared/**/*"
   ],
-  "exclude": ["**/*.test.ts"],
   "compilerOptions": {
     "composite": true,
+    // Os testes rodam direto no Node (node --test), cujo resolvedor ESM exige a extensão
+    // explícita no import. O bundler de produção (Vite) aceita o mesmo especificador.
+    "allowImportingTsExtensions": true,
     "types": ["electron-vite/node", "node"],
     "module": "ESNext",
     "moduleResolution": "Bundler",

@@ -34,8 +34,28 @@ export async function appendHistoryEntry(userDataDir: string, entry: HistoryEntr
     serialized = JSON.stringify(next)
   }
 
-  await fs.promises.writeFile(historyFilePath(userDataDir), serialized, 'utf8')
+  await writeFileAtomic(historyFilePath(userDataDir), serialized)
   return next
+}
+
+/**
+ * Escreve em um arquivo temporário e só então renomeia por cima do definitivo.
+ *
+ * O histórico é reescrito inteiro a cada pesquisa e pode passar de alguns MB; uma interrupção no
+ * meio de um writeFile direto (queda de energia, app fechado à força) deixaria um JSON truncado.
+ * Como loadHistory trata JSON inválido devolvendo lista vazia, isso apagaria silenciosamente TODO
+ * o histórico do usuário. O rename é atômico, então ou o arquivo antigo permanece intacto, ou o
+ * novo está completo.
+ */
+async function writeFileAtomic(destPath: string, contents: string): Promise<void> {
+  const tmpPath = `${destPath}.tmp`
+  await fs.promises.writeFile(tmpPath, contents, 'utf8')
+  try {
+    await fs.promises.rename(tmpPath, destPath)
+  } catch (err) {
+    await fs.promises.rm(tmpPath, { force: true })
+    throw err
+  }
 }
 
 export async function clearHistory(userDataDir: string): Promise<void> {

@@ -1,4 +1,5 @@
 import yauzl from 'yauzl'
+import type { Readable } from 'node:stream'
 
 export interface ZipEntryInfo {
   fileName: string
@@ -14,6 +15,8 @@ export interface OpenZip {
   entries: ZipEntryInfo[]
   readEntry: (entry: ZipEntryInfo, maxBytes?: number) => Promise<Buffer>
   readEntryFull: (entry: ZipEntryInfo) => Promise<Buffer>
+  /** Stream da entrada, para varrer arquivos grandes sem carregá-los inteiros em memória. */
+  openEntryStream: (entry: ZipEntryInfo) => Promise<Readable>
   close: () => void
 }
 
@@ -66,6 +69,7 @@ function finishOpen(
       entries,
       readEntry: (entry, maxBytes) => readZipEntry(zipfile, entry.raw, maxBytes),
       readEntryFull: (entry) => readZipEntry(zipfile, entry.raw),
+      openEntryStream: (entry) => openZipEntryStream(zipfile, entry.raw),
       close: () => zipfile.close()
     })
   })
@@ -74,6 +78,15 @@ function finishOpen(
     if (settled) return
     settled = true
     reject(err)
+  })
+}
+
+function openZipEntryStream(zipfile: yauzl.ZipFile, entry: yauzl.Entry): Promise<Readable> {
+  return new Promise((resolve, reject) => {
+    zipfile.openReadStream(entry, (err, stream) => {
+      if (err || !stream) return reject(err ?? new Error('Falha ao abrir stream da entrada do ZIP'))
+      resolve(stream)
+    })
   })
 }
 

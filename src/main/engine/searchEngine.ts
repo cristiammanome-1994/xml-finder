@@ -19,17 +19,18 @@ import { classifyByExtension, sniffFileKind, classifyBuffer, type FileKind } fro
 import { openZipFromFile, openZipFromBuffer, type OpenZip, type ZipEntryInfo } from './zipReader'
 import { openRarFromBuffer, type OpenRarFile, type RarEntryInfo } from './rarReader'
 import { extractXmlInfo, type XmlNoteMetadata } from './xmlMatcher'
-import { onlyDigits, normalizeForNameMatch } from '@shared/keyUtils'
 import { openSearchIndex, type SearchIndex } from './searchIndex'
+import { PendingIdentifiers, type IdentifierMatch } from './pendingIdentifiers'
+import { decodeXmlBuffer } from './xmlEncoding'
+import { scanStreamForXml } from './streamScanner'
 
 const PARTIAL_READ_BYTES = 8 * 1024
-// Teto para ler um XML inteiro atrás da chave. Precisa acomodar arquivos de lote (dezenas/centenas
-// de notas em um único XML), que passam folgadamente de alguns MB.
+// Teto para ler um XML inteiro em memória atrás da chave. Precisa acomodar arquivos de lote
+// (dezenas/centenas de notas em um único XML), que passam folgadamente de alguns MB. Acima disso
+// o arquivo não é ignorado: passa a ser varrido em streaming, por pedaços (ver scanStreamForXml).
 const FULL_READ_CAP_BYTES = 20 * 1024 * 1024
 const PROGRESS_THROTTLE_MS = 150
 const ZIP_ENTRY_SNIFF_CAP = 10 * 1024 * 1024
-/** Identificadores genéricos (não-chave) mais curtos que isso são propensos demais a falso positivo por substring. */
-const MIN_GENERIC_MATCH_LENGTH = 6
 /**
  * Teto de tamanho descomprimido para descer em um ZIP/RAR aninhado. Sem isso, uma entrada
  * aninhada maliciosa poderia declarar um tamanho descomprimido enorme a partir de poucos bytes
@@ -41,15 +42,23 @@ function formatMegabytes(bytes: number): string {
   return `${Math.round(bytes / (1024 * 1024))}MB`
 }
 
-interface GenericPending {
-  raw: string
-  normalized: string
-}
-
-/** Um identificador satisfeito por um arquivo, com a chave de acesso que o casou (se houver). */
-interface CandidateMatch {
-  identifier: string
-  chave: string | null
+/**
+ * Um arquivo XML a ser avaliado, junto com as formas de ler seu conteúdo. As leituras são
+ * preguiçosas porque a maioria dos candidatos casa (ou é descartada) pelo nome, sem nunca
+ * precisar do conteúdo.
+ */
+interface XmlCandidate {
+  fileName: string
+  diskPath: string
+  chain: ChainStep[]
+  size: number
+  mtimeMs: number | null
+  /** Primeiros bytes — suficiente para a esmagadora maioria dos XMLs de nota única. */
+  readPartial: () => Promise<Buffer>
+  /** Arquivo inteiro em memória. Só chamado quando size <= FULL_READ_CAP_BYTES. */
+  readFull: () => Promise<Buffer>
+  /** Leitura em streaming, para arquivos grandes demais para caber em memória. */
+  openStream?: () => Promise<NodeJS.ReadableStream>
 }
 
 export interface SearchHooks {
@@ -73,24 +82,7 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
   const startedAt = Date.now()
   const maxDepth = depthToNumber(options.maxDepth)
 
-  // Cada chave de 44 dígitos mapeia para uma LISTA de identificadores brutos — o usuário pode
-  // colar a mesma chave duas vezes com formatação diferente (com/sem traços), e cada ocorrência
-  // deve gerar seu próprio resultado quando o arquivo for encontrado, em vez de uma sobrescrever
-  // silenciosamente a outra.
-  const pendingDigits = new Map<string, string[]>()
-  const genericPending: GenericPending[] = []
-  for (const id of options.identifiers) {
-    const digits = onlyDigits(id)
-    if (digits.length === 44) {
-      const existing = pendingDigits.get(digits)
-      if (existing) existing.push(id)
-      else pendingDigits.set(digits, [id])
-    } else {
-      genericPending.push({ raw: id, normalized: normalizeForNameMatch(id) })
-    }
-  }
-  let totalIdentifiers = genericPending.length
-  for (const raws of pendingDigits.values()) totalIdentifiers += raws.length
+  const pending = new PendingIdentifiers(options.identifiers)
 
   const stats: SearchStats = {
     filesScanned: 0,
@@ -101,7 +93,7 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
     notFoundCount: 0,
     errorCount: 0,
     elapsedMs: 0,
-    estimatedTotal: totalIdentifiers,
+    estimatedTotal: pending.total,
     phase: 'buscando'
   }
 
@@ -116,16 +108,11 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
     hooks.onProgress({ ...stats })
   }
 
-  const allResolved = (): boolean => pendingDigits.size === 0 && genericPending.length === 0
+  const allResolved = (): boolean => pending.allResolved
 
   const reportError = (diskPath: string, kind: ScanError['kind'], message: string): void => {
     stats.errorCount++
     hooks.onError({ id: randomUUID(), path: diskPath, kind, message })
-  }
-
-  const removeGenericMatch = (raw: string): void => {
-    const idx = genericPending.findIndex((g) => g.raw === raw)
-    if (idx >= 0) genericPending.splice(idx, 1)
   }
 
   function buildLocation(diskPath: string, chain: ChainStep[]): FileLocation {
@@ -154,84 +141,23 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
     }
   }
 
-  async function tryMatchCandidate(
-    fileName: string,
-    getPartial: () => Promise<Buffer>,
-    getFull: () => Promise<Buffer>,
-    diskPath: string,
-    chain: ChainStep[],
-    size: number,
-    mtimeMs: number | null
-  ): Promise<void> {
+  async function tryMatchCandidate(candidate: XmlCandidate): Promise<void> {
+    const { fileName, diskPath, chain, size, mtimeMs } = candidate
     stats.xmlAnalyzed++
 
-    const matches: CandidateMatch[] = []
-    let method: MatchMethod = 'nao_encontrado'
+    let matches: IdentifierMatch[] = pending.takeByFileName(fileName)
+    let method: MatchMethod = matches.length > 0 ? 'nome' : 'nao_encontrado'
     let docType: DocumentType = 'Desconhecido'
     let noteMeta: Map<string, XmlNoteMetadata> | null = null
 
-    const nameDigits = onlyDigits(fileName)
-    if (nameDigits.length === 44 && pendingDigits.has(nameDigits)) {
-      for (const raw of pendingDigits.get(nameDigits)!) matches.push({ identifier: raw, chave: nameDigits })
-      method = 'nome'
-      pendingDigits.delete(nameDigits)
-    }
-
-    if (matches.length === 0 && genericPending.length > 0) {
-      const normalizedName = normalizeForNameMatch(fileName)
-      const hit = genericPending.find(
-        (g) => g.raw.length >= MIN_GENERIC_MATCH_LENGTH && g.normalized.length > 0 && normalizedName.includes(g.normalized)
-      )
-      if (hit) {
-        matches.push({ identifier: hit.raw, chave: null })
-        method = 'nome'
-        removeGenericMatch(hit.raw)
-      }
-    }
-
-    if (matches.length === 0 && (pendingDigits.size > 0 || genericPending.length > 0)) {
+    if (matches.length === 0 && !pending.allResolved) {
       try {
-        const partial = await getPartial()
-        let content = partial.toString('utf8')
-        let info = extractXmlInfo(content)
-
-        // Um XML de lote (enviNFe, vários nfeProc concatenados) carrega dezenas de notas, e só as
-        // primeiras cabem na leitura parcial. Como não dá para saber de antemão se o arquivo é uma
-        // nota só ou um lote, sempre que a leitura parcial tiver sido truncada vale ler o resto —
-        // a chave procurada pode estar em qualquer ponto dele. O custo fica limitado pelo teto de
-        // FULL_READ_CAP_BYTES e não afeta os XMLs de nota única, que cabem inteiros na parcial.
-        if (size > partial.length && size <= FULL_READ_CAP_BYTES) {
-          const full = await getFull()
-          content = full.toString('utf8')
-          info = extractXmlInfo(content)
-        }
-
-        // Coleta TODAS as chaves pendentes presentes no arquivo, não só a primeira: um lote
-        // satisfaz vários identificadores de uma vez, cada um com sua própria chave.
-        for (const key of info.accessKeys) {
-          const raws = pendingDigits.get(key)
-          if (raws) {
-            for (const raw of raws) matches.push({ identifier: raw, chave: key })
-            pendingDigits.delete(key)
-          }
-        }
+        const found = await matchByContent(candidate)
+        matches = found.matches
         if (matches.length > 0) {
           method = 'conteudo'
-          docType = info.docType
-          noteMeta = info.notes
-        }
-
-        // Identificadores genéricos são fuzzy (substring), então casa no máximo um por arquivo
-        // para não consumir vários de uma vez por engano.
-        if (matches.length === 0 && genericPending.length > 0) {
-          const hit = genericPending.find((g) => g.raw.length >= MIN_GENERIC_MATCH_LENGTH && content.includes(g.raw))
-          if (hit) {
-            matches.push({ identifier: hit.raw, chave: info.accessKeys[0] ?? null })
-            method = 'conteudo'
-            docType = info.docType
-            noteMeta = info.notes
-            removeGenericMatch(hit.raw)
-          }
+          docType = found.docType
+          noteMeta = found.notes
         }
       } catch (err) {
         reportError(diskPath, 'xml_invalido', `Falha ao ler ${fileName}: ${(err as Error).message}`)
@@ -239,12 +165,14 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
       }
     }
 
+    if (matches.length === 0) return
+
     // Enriquecimento best-effort: quando o match foi por nome, o conteúdo nunca foi lido, então
     // docType e os metadados de exibição (CNPJ/número/série/data) ficariam vazios. Uma leitura
     // parcial aqui não afeta se o item é reportado como encontrado — só tenta preenchê-los.
     if (method === 'nome' && matches.some((m) => m.chave)) {
       try {
-        const info = extractXmlInfo((await getPartial()).toString('utf8'))
+        const info = extractXmlInfo(decodeXmlBuffer(await candidate.readPartial()))
         if (docType === 'Desconhecido') docType = info.docType
         noteMeta = info.notes
       } catch {
@@ -252,7 +180,7 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
       }
     }
 
-    if (matches.length > 0) {
+    {
       for (const { identifier, chave } of matches) {
         stats.foundCount++
         const meta = chave ? noteMeta?.get(chave) : undefined
@@ -303,16 +231,94 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
     }
   }
 
-  async function handleDiskXml(absPath: string, size: number, mtimeMs: number): Promise<void> {
-    await tryMatchCandidate(
-      path.basename(absPath),
-      async () => readFilePartial(absPath, PARTIAL_READ_BYTES),
-      async () => fs.promises.readFile(absPath),
-      absPath,
-      [],
-      size,
-      mtimeMs
+  interface ContentMatchResult {
+    matches: IdentifierMatch[]
+    docType: DocumentType
+    notes: Map<string, XmlNoteMetadata> | null
+  }
+
+  /**
+   * Procura os identificadores pendentes no CONTEÚDO do arquivo.
+   *
+   * Arquivos que cabem no teto de memória são lidos de uma vez (caminho normal, e o único que
+   * consegue extrair os metadados por nota). Acima disso — XML de lote muito grande — o arquivo é
+   * varrido em pedaços via streaming: mais lento, sem metadados, mas encontra a chave em qualquer
+   * ponto do arquivo em vez de reportar um falso "não encontrado".
+   */
+  async function matchByContent(candidate: XmlCandidate): Promise<ContentMatchResult> {
+    const empty: ContentMatchResult = { matches: [], docType: 'Desconhecido', notes: null }
+
+    if (candidate.size > FULL_READ_CAP_BYTES && candidate.openStream) {
+      return matchByStreaming(candidate)
+    }
+
+    const partial = await candidate.readPartial()
+    let content = decodeXmlBuffer(partial)
+
+    // Um XML de lote (enviNFe, vários nfeProc concatenados) carrega dezenas de notas, e só as
+    // primeiras cabem na leitura parcial. Como não dá para saber de antemão se o arquivo é uma
+    // nota só ou um lote, sempre que a leitura parcial tiver sido truncada vale ler o resto —
+    // a chave procurada pode estar em qualquer ponto dele.
+    if (candidate.size > partial.length && candidate.size <= FULL_READ_CAP_BYTES) {
+      content = decodeXmlBuffer(await candidate.readFull())
+    }
+
+    const info = extractXmlInfo(content)
+    const byKey = pending.takeByAccessKeys(info.accessKeys)
+    if (byKey.length > 0) {
+      return { matches: byKey, docType: info.docType, notes: info.notes }
+    }
+
+    const generic = pending.takeGenericByContent(content, info.accessKeys[0] ?? null)
+    if (generic.length > 0) {
+      return { matches: generic, docType: info.docType, notes: info.notes }
+    }
+
+    return empty
+  }
+
+  /**
+   * Varredura por pedaços de um XML grande demais para caber em memória. Cada pedaço é analisado
+   * isoladamente, então os metadados por nota (que dependem do bloco <infNFe> inteiro) não são
+   * extraídos aqui — o objetivo é não perder a chave, não enriquecer o resultado.
+   */
+  async function matchByStreaming(candidate: XmlCandidate): Promise<ContentMatchResult> {
+    const matches: IdentifierMatch[] = []
+    let docType: DocumentType = 'Desconhecido'
+
+    const stream = await candidate.openStream!()
+    await scanStreamForXml(stream, decodeXmlBuffer, (text) => {
+      const info = extractXmlInfo(text)
+      if (docType === 'Desconhecido') docType = info.docType
+
+      matches.push(...pending.takeByAccessKeys(info.accessKeys))
+      if (matches.length === 0) {
+        matches.push(...pending.takeGenericByContent(text, info.accessKeys[0] ?? null))
+      }
+
+      // Continua varrendo mesmo depois de achar algo: um lote grande pode conter várias das
+      // chaves procuradas. Só para quando não sobrou nada a procurar, ou a busca foi cancelada.
+      return pending.allResolved || hooks.isCancelled()
+    })
+
+    limitationNotes.add(
+      `"${candidate.fileName}" tem mais de ${formatMegabytes(FULL_READ_CAP_BYTES)} e foi lido em modo de varredura — CNPJ, número e série não são extraídos nesse modo.`
     )
+
+    return { matches, docType, notes: null }
+  }
+
+  async function handleDiskXml(absPath: string, size: number, mtimeMs: number): Promise<void> {
+    await tryMatchCandidate({
+      fileName: path.basename(absPath),
+      diskPath: absPath,
+      chain: [],
+      size,
+      mtimeMs,
+      readPartial: () => readFilePartial(absPath, PARTIAL_READ_BYTES),
+      readFull: () => fs.promises.readFile(absPath),
+      openStream: async () => fs.createReadStream(absPath)
+    })
   }
 
   async function handleZipEntryXml(
@@ -326,15 +332,16 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
       reportError(diskPath, 'senha_protegida', `Entrada protegida por senha: ${entry.fileName}`)
       return
     }
-    await tryMatchCandidate(
-      path.basename(entry.fileName),
-      () => zip.readEntry(entry, PARTIAL_READ_BYTES),
-      () => zip.readEntryFull(entry),
+    await tryMatchCandidate({
+      fileName: path.basename(entry.fileName),
       diskPath,
       chain,
-      entry.size,
-      entry.lastModified
-    )
+      size: entry.size,
+      mtimeMs: entry.lastModified,
+      readPartial: () => zip.readEntry(entry, PARTIAL_READ_BYTES),
+      readFull: () => zip.readEntryFull(entry),
+      openStream: () => zip.openEntryStream(entry)
+    })
   }
 
   async function handleRarEntryXml(
@@ -344,15 +351,17 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
     parentChain: ChainStep[]
   ): Promise<void> {
     const chain = [...parentChain, { containerType: 'rar' as const, entryPath: entry.fileName, entrySize: entry.size }]
-    await tryMatchCandidate(
-      path.basename(entry.fileName),
-      async () => content,
-      async () => content,
+    // O extrator de RAR já entregou o conteúdo inteiro em memória, então não há streaming a fazer:
+    // readPartial e readFull servem o mesmo buffer, e o teto de memória não se aplica.
+    await tryMatchCandidate({
+      fileName: path.basename(entry.fileName),
       diskPath,
       chain,
-      entry.size,
-      null
-    )
+      size: Math.min(entry.size, content.length),
+      mtimeMs: null,
+      readPartial: async () => content,
+      readFull: async () => content
+    })
   }
 
   async function descendIntoZipBuffer(
@@ -530,8 +539,8 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
   // --- Fase de cache: resolve o que já foi visto numa busca anterior nesta mesma pasta, antes
   // de tocar no disco. Se todas as chaves pedidas forem cache-hit, a varredura abaixo nem chega
   // a rodar (allResolved() já é true no primeiro isCancelled()||allResolved() checado).
-  if (searchIndex && pendingDigits.size > 0) {
-    for (const [key, raws] of [...pendingDigits]) {
+  if (searchIndex) {
+    for (const key of pending.pendingKeys()) {
       const cached = searchIndex.lookup(options.rootFolder, key)
       if (!cached) continue
 
@@ -544,7 +553,8 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
       }
       if (!stillValid) continue
 
-      pendingDigits.delete(key)
+      const raws = pending.takeKey(key)
+      if (!raws) continue
       for (const raw of raws) {
         stats.foundCount++
         hooks.onFound({
@@ -620,15 +630,9 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
     searchIndex?.close()
   }
 
-  const notFound: NotFoundItem[] = []
-  for (const raws of pendingDigits.values()) {
-    for (const raw of raws) {
-      notFound.push({ id: randomUUID(), identifier: raw, status: 'nao_encontrado' })
-    }
-  }
-  for (const g of genericPending) {
-    notFound.push({ id: randomUUID(), identifier: g.raw, status: 'nao_encontrado' })
-  }
+  const notFound: NotFoundItem[] = pending
+    .remaining()
+    .map((identifier) => ({ id: randomUUID(), identifier, status: 'nao_encontrado' as const }))
   stats.notFoundCount = notFound.length
   emitProgress(true)
 

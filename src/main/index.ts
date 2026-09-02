@@ -14,6 +14,7 @@ import type {
 } from '@shared/types'
 import { validateAccessKey } from '@shared/keyUtils'
 import { extractSingleFile, readLocationContent } from './engine/extractor'
+import { decodeXmlBuffer } from './engine/xmlEncoding'
 import { appendHistoryEntry, clearHistory, loadHistory } from './engine/history'
 
 let mainWindow: BrowserWindow | null = null
@@ -85,7 +86,9 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('file:readXmlContent', async (_e, location: FileLocation) => {
     const buf = await readLocationContent(location)
-    return buf.toString('utf8')
+    // Respeita o encoding declarado no XML: muitos emissores ainda geram ISO-8859-1, e decodificar
+    // como UTF-8 corromperia todo texto acentuado (razão social, endereço) na visualização.
+    return decodeXmlBuffer(buf)
   })
 
   ipcMain.handle('file:extractSingle', async (_e, req: ExtractRequest) => {
