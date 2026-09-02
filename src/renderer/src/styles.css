@@ -492,6 +492,10 @@ button.btn.sm {
   font-weight: 600;
   cursor: pointer;
   color: var(--muted-foreground);
+  /* Elemento <button> para ser alcançável por teclado — o reset abaixo mantém a aparência de aba. */
+  border: none;
+  background: transparent;
+  font-family: inherit;
 }
 .filter-tab.active {
   background: var(--card);
@@ -607,6 +611,23 @@ table.results td {
   align-items: center;
   gap: 8px;
   cursor: pointer;
+  /* Elemento <button>: ocupa a largura da faixa e herda a tipografia do app. */
+  width: calc(100% - 40px);
+  border: none;
+  font-family: inherit;
+  text-align: left;
+}
+
+/*
+ * Indicador de foco visível para navegação por teclado. Só aparece no foco por teclado
+ * (:focus-visible), então não polui a interface de quem usa mouse.
+ */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+table.results tbody tr:focus-visible {
+  outline-offset: -2px;
 }
 
 /* Drawer / modal */

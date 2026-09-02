@@ -72,7 +72,7 @@ interface State {
   resetForNewSearch: () => void
   beginSearch: () => void
   applyProgress: (stats: SearchStats) => void
-  applyFound: (item: FoundItem) => void
+  applyFoundBatch: (items: FoundItem[]) => void
   applyError: (error: ScanError) => void
   applyDone: (stats: SearchStats, notFound: NotFoundItem[], notes: string[]) => void
   loadFromHistory: (results: ResultItem[], stats: SearchStats, rootFolder: string) => void
@@ -144,10 +144,15 @@ export const useStore = create<State>((set, get) => ({
 
   applyProgress: (stats) => set({ stats }),
 
+  // Recebe os resultados em lote (ver o buffer em App.tsx): copiar o array a cada item
+  // encontrado é O(n²) e dispara um render da tabela por item — inviável numa pesquisa que
+  // localiza milhares de XMLs.
+  //
   // stats.foundCount não é recomputado aqui — o worker sempre manda um 'progress' logo após
   // cada 'found', então stats fica correto no próximo applyProgress em vez de ter duas fontes
   // de verdade para a mesma contagem.
-  applyFound: (item) => set((s) => ({ found: [...s.found, item] })),
+  applyFoundBatch: (items) =>
+    set((s) => (items.length === 0 ? s : { found: [...s.found, ...items] })),
 
   applyError: (error) => set((s) => ({ errors: [...s.errors, error] })),
 

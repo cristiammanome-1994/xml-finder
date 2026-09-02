@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { AlertTriangle, X } from 'lucide-react'
 import { useStore } from '../store'
+import { useEscapeKey } from '../useEscapeKey'
 
 const KIND_LABEL: Record<string, string> = {
   zip_corrompido: 'ZIP corrompido',
@@ -17,25 +18,34 @@ export function ErrorsPanel() {
   const limitationNotes = useStore((s) => s.limitationNotes)
   const [open, setOpen] = useState(false)
 
+  const close = useCallback(() => setOpen(false), [])
+  useEscapeKey(open, close)
+
   if (errors.length === 0 && limitationNotes.length === 0) return null
 
   return (
     <>
       {errors.length > 0 && (
-        <div className="errors-banner" onClick={() => setOpen(true)}>
+        <button type="button" className="errors-banner" onClick={() => setOpen(true)}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <AlertTriangle className="icon" style={{ width: 13, height: 13 }} />
             {errors.length} {errors.length === 1 ? 'arquivo não pôde' : 'arquivos não puderam'} ser analisado(s).
           </span>
           <span>Ver detalhes →</span>
-        </div>
+        </button>
       )}
       {open && (
         <div className="overlay centered" onClick={() => setOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Erros e limitações da pesquisa"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-header">
               <strong>Erros e limitações da pesquisa</strong>
-              <button className="close-btn" onClick={() => setOpen(false)}>
+              <button className="close-btn" onClick={() => setOpen(false)} aria-label="Fechar lista de erros">
                 <X className="icon" />
               </button>
             </div>

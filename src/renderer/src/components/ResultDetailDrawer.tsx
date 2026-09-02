@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Clipboard, ClipboardList, FolderOpen, Save, Eye, X } from 'lucide-react'
 import { useStore } from '../store'
 import { fmtSize, basename } from '../format'
+import { useEscapeKey } from '../useEscapeKey'
 import { XmlViewerModal } from './XmlViewerModal'
 
 export function ResultDetailDrawer() {
@@ -9,6 +10,10 @@ export function ResultDetailDrawer() {
   const setSelectedItem = useStore((s) => s.setSelectedItem)
   const showToast = useStore((s) => s.showToast)
   const [xmlViewerOpen, setXmlViewerOpen] = useState(false)
+
+  // Só fecha o drawer com Esc quando o visualizador de XML não está por cima dele.
+  const close = useCallback(() => setSelectedItem(null), [setSelectedItem])
+  useEscapeKey(!!item && !xmlViewerOpen, close)
 
   if (!item) return null
 
@@ -43,10 +48,16 @@ export function ResultDetailDrawer() {
 
   return (
     <div className="overlay" onClick={() => setSelectedItem(null)}>
-      <div className="drawer" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Detalhes do XML"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="drawer-header">
           <strong>Detalhes do XML</strong>
-          <button className="close-btn" onClick={() => setSelectedItem(null)}>
+          <button className="close-btn" onClick={() => setSelectedItem(null)} aria-label="Fechar detalhes">
             <X className="icon" />
           </button>
         </div>

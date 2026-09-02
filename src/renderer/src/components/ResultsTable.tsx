@@ -46,13 +46,14 @@ export function ResultsTable() {
     return (
       <div className="empty-state">
         <h3>Comece uma pesquisa</h3>
+        {/* A numeração vem do próprio <ol> — repeti-la no texto exibia "1. 1. ..." */}
         <ol>
-          <li>1. Selecione a pasta raiz</li>
-          <li>2. Cole as chaves ou nomes de XML</li>
-          <li>3. Clique em LOCALIZAR XMLs</li>
-          <li>4. Acompanhe o progresso</li>
-          <li>5. Veja encontrados e não encontrados</li>
-          <li>6. Copie o caminho, abra a pasta ou extraia o XML</li>
+          <li>Selecione a pasta raiz</li>
+          <li>Cole as chaves ou nomes de XML</li>
+          <li>Clique em LOCALIZAR XMLs</li>
+          <li>Acompanhe o progresso</li>
+          <li>Veja encontrados e não encontrados</li>
+          <li>Copie o caminho, abra a pasta ou extraia o XML</li>
         </ol>
       </div>
     )
@@ -61,16 +62,19 @@ export function ResultsTable() {
   return (
     <>
       <div className="toolbar">
-        <div className="filter-tabs">
+        <div className="filter-tabs" role="tablist" aria-label="Filtrar resultados">
           {FILTERS.map((f) => (
-            <div
+            <button
               key={f.value}
+              type="button"
+              role="tab"
+              aria-selected={filter === f.value}
               className={`filter-tab ${filter === f.value ? 'active' : ''}`}
               onClick={() => setFilter(f.value)}
             >
               {f.label}
               {f.value === 'erros' && errors.length > 0 ? ` (${errors.length})` : ''}
-            </div>
+            </button>
           ))}
         </div>
         <div className="toolbar-actions">
@@ -108,7 +112,20 @@ export function ResultsTable() {
               {visible.map((item) => (
                 <tr
                   key={item.id}
+                  // Só linhas com resultado abrem detalhes — as "não encontrado" não têm o que abrir,
+                  // então também não entram na navegação por teclado.
+                  tabIndex={item.status === 'encontrado' ? 0 : undefined}
+                  role={item.status === 'encontrado' ? 'button' : undefined}
+                  aria-label={
+                    item.status === 'encontrado' ? `Ver detalhes de ${item.fileName}` : undefined
+                  }
                   onClick={() => (item.status === 'encontrado' ? setSelectedItem(item) : undefined)}
+                  onKeyDown={(e) => {
+                    if (item.status === 'encontrado' && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault()
+                      setSelectedItem(item)
+                    }
+                  }}
                 >
                   {item.status === 'encontrado' ? (
                     <>

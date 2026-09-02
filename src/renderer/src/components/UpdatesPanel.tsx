@@ -1,6 +1,8 @@
+import { useCallback } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { X, Sparkles, Wrench, Bug } from 'lucide-react'
 import { useStore } from '../store'
+import { useEscapeKey } from '../useEscapeKey'
 import { CHANGELOG, type ChangelogCategory } from '../changelog'
 
 const CATEGORY_LABEL: Record<ChangelogCategory, string> = {
@@ -25,14 +27,23 @@ export function UpdatesPanel() {
   const show = useStore((s) => s.showUpdates)
   const setShow = useStore((s) => s.setShowUpdates)
 
+  const close = useCallback(() => setShow(false), [setShow])
+  useEscapeKey(show, close)
+
   if (!show) return null
 
   return (
     <div className="overlay" onClick={() => setShow(false)}>
-      <div className="drawer" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Atualizações"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="drawer-header">
           <strong>Atualizações</strong>
-          <button className="close-btn" onClick={() => setShow(false)}>
+          <button className="close-btn" onClick={() => setShow(false)} aria-label="Fechar atualizações">
             <X className="icon" />
           </button>
         </div>

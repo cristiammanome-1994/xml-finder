@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, X } from 'lucide-react'
 import type { FoundItem } from '@shared/types'
+import { useEscapeKey } from '../useEscapeKey'
 
 function formatXml(xml: string): string {
   const collapsed = xml.replace(/>\s*</g, '><').trim()
@@ -26,6 +27,8 @@ export function XmlViewerModal({ item, onClose }: { item: FoundItem; onClose: ()
   const [content, setContent] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  useEscapeKey(true, onClose)
+
   useEffect(() => {
     let cancelled = false
     window.api
@@ -43,10 +46,16 @@ export function XmlViewerModal({ item, onClose }: { item: FoundItem; onClose: ()
 
   return (
     <div className="overlay centered" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Conteúdo de ${item.fileName}`}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
           <strong className="mono">{item.fileName}</strong>
-          <button className="close-btn" onClick={onClose}>
+          <button className="close-btn" onClick={onClose} aria-label="Fechar visualização do XML">
             <X className="icon" />
           </button>
         </div>

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { useStore, emptyStats } from '../store'
 import { fmtElapsed } from '../format'
+import { useEscapeKey } from '../useEscapeKey'
 import type { HistoryEntry } from '@shared/types'
 
 export function HistoryPanel() {
@@ -10,6 +11,9 @@ export function HistoryPanel() {
   const loadFromHistory = useStore((s) => s.loadFromHistory)
   const showToast = useStore((s) => s.showToast)
   const [entries, setEntries] = useState<HistoryEntry[]>([])
+
+  const close = useCallback(() => setShow(false), [setShow])
+  useEscapeKey(show, close)
 
   useEffect(() => {
     if (show) window.api.listHistory().then(setEntries)
@@ -44,10 +48,16 @@ export function HistoryPanel() {
 
   return (
     <div className="overlay" onClick={() => setShow(false)}>
-      <div className="drawer" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Histórico de pesquisas"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="drawer-header">
           <strong>Histórico de pesquisas</strong>
-          <button className="close-btn" onClick={() => setShow(false)}>
+          <button className="close-btn" onClick={() => setShow(false)} aria-label="Fechar histórico">
             <X className="icon" />
           </button>
         </div>
@@ -58,7 +68,19 @@ export function HistoryPanel() {
           <>
             <div className="history-list">
               {entries.map((e) => (
-                <div key={e.id} className="history-item" onClick={() => reopen(e)}>
+                <div
+                  key={e.id}
+                  className="history-item"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => reopen(e)}
+                  onKeyDown={(ev) => {
+                    if (ev.key === 'Enter' || ev.key === ' ') {
+                      ev.preventDefault()
+                      reopen(e)
+                    }
+                  }}
+                >
                   <div className="date">
                     {new Date(e.date).toLocaleString('pt-BR')}
                     {e.cancelled && (
