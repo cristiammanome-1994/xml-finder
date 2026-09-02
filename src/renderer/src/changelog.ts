@@ -15,6 +15,14 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.6.0',
+    date: '2026-09-02',
+    title: 'Correção importante em XMLs grandes, acentuação e acessibilidade',
+    category: 'correcao',
+    description:
+      'Corrigido um problema sério: em arquivos XML muito grandes (acima de 20 MB, como lotes mensais com milhares de notas), a chave só era procurada no comecinho do arquivo — uma nota que estivesse mais adiante era informada como "não encontrada" mesmo estando lá. Agora esses arquivos são varridos por inteiro, sem consumir memória. Também corrigido: XMLs gerados em ISO-8859-1 (comum em emissores mais antigos) apareciam com acentuação corrompida na visualização; CT-e não era identificado corretamente; e o histórico de pesquisas podia ser perdido por inteiro se o aplicativo fosse fechado no momento exato em que ele era salvo. Pesquisas que localizam muitos XMLs ficaram bem mais rápidas de exibir, e toda a interface passou a funcionar por teclado (Tab para navegar, Enter para abrir, Esc para fechar).'
+  },
+  {
     version: '1.5.0',
     date: '2026-08-31',
     title: 'Índice de pesquisas e mais dados por nota encontrada',

@@ -23,6 +23,9 @@ Baixe a versão mais recente em **[Releases](../../releases/latest)**:
 - **Valida a chave de acesso** (dígito verificador módulo 11) e mostra na hora quantas são válidas, inválidas ou identificadores por nome.
 - **Procura em pastas, subpastas, ZIP e RAR**, inclusive **arquivos compactados aninhados** (ex.: `.zip` dentro de `.rar` dentro de `.zip`), com profundidade configurável (1, 2, 3, 5 ou ilimitada — padrão 3).
 - **Identifica o XML pelo conteúdo**, não só pelo nome: procura `chNFe`, o atributo `Id="NFe..."` e a chave de 44 dígitos dentro do arquivo — encontra mesmo quando o nome do arquivo não bate com a chave.
+- **Lê arquivos de qualquer tamanho**: XMLs de lote acima de 20 MB são varridos em streaming, por pedaços, em vez de carregados em memória — a chave é encontrada em qualquer ponto do arquivo.
+- **Respeita o encoding do XML** (UTF-8 ou ISO-8859-1), preservando acentuação de razão social e endereço na visualização.
+- **Navegável por teclado**: Tab para percorrer, Enter/Espaço para abrir um resultado, Esc para fechar painéis.
 - **Detecta XML, ZIP e RAR por assinatura de conteúdo**, não só pela extensão (pega arquivos renomeados ou sem extensão).
 - **Não extrai arquivos compactados inteiros**: lê apenas as entradas necessárias via streaming (ZIP) ou extração seletiva (RAR).
 - **Sai da busca assim que todas as chaves são encontradas**, sem varrer o resto da pasta — importante em bases com arquivos muito grandes.
@@ -62,6 +65,9 @@ src/
 │       ├── zipReader.ts      # Leitura de ZIP em streaming (yauzl) — sem extrair tudo
 │       ├── rarReader.ts      # Leitura de RAR via WASM (node-unrar-js) — sem depender de unrar.exe
 │       ├── xmlMatcher.ts     # Extração de chave/Id/CNPJ/número/série/data por nota, via regex leve
+│       ├── pendingIdentifiers.ts # Regras de casamento identificador <-> arquivo (testável isoladamente)
+│       ├── streamScanner.ts  # Varredura por pedaços de XML grande demais para caber em memória
+│       ├── xmlEncoding.ts    # Decodificação respeitando o encoding declarado (UTF-8 / ISO-8859-1)
 │       ├── extractor.ts      # Extração de um único arquivo de dentro de ZIP/RAR aninhados
 │       ├── searchIndex.ts    # Cache local (SQLite via node:sqlite) de "chave -> onde foi achada"
 │       ├── exporter.ts       # Exportação para Excel/CSV (carregado sob demanda)
