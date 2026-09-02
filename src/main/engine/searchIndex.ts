@@ -92,6 +92,51 @@ export function openSearchIndex(userDataDir: string): SearchIndex | null {
         data_emissao = excluded.data_emissao
     `)
 
+    /**
+     * As gravações são acumuladas e aplicadas em uma única transação.
+     *
+     * Cada `run()` solto no SQLite abre e confirma sua própria transação, com a escrita em disco
+     * que isso implica. Numa pesquisa que localiza milhares de XMLs, isso vira milhares de
+     * confirmações no meio da varredura, competindo com a leitura dos arquivos — que é o que
+     * realmente importa. Em lote, o custo por entrada fica desprezível.
+     */
+    const buffer: Array<[string, string, CachedFind]> = []
+    const FLUSH_EVERY = 500
+
+    function flush(): void {
+      if (buffer.length === 0) return
+      const batch = buffer.splice(0, buffer.length)
+      try {
+        db.exec('BEGIN')
+        for (const [rootFolder, accessKey, entry] of batch) {
+          upsertStmt.run(
+            rootFolder,
+            accessKey,
+            entry.diskPath,
+            JSON.stringify(entry.chain),
+            entry.fileName,
+            entry.sizeBytes,
+            entry.docType,
+            entry.storageType,
+            entry.containerMtimeMs,
+            Date.now(),
+            entry.emitCnpj,
+            entry.numero,
+            entry.serie,
+            entry.dataEmissao
+          )
+        }
+        db.exec('COMMIT')
+      } catch {
+        // cache é best-effort — uma falha ao gravar não pode afetar a busca em andamento
+        try {
+          db.exec('ROLLBACK')
+        } catch {
+          // sem transação aberta
+        }
+      }
+    }
+
     return {
       lookup(rootFolder, accessKey) {
         try {
@@ -115,28 +160,11 @@ export function openSearchIndex(userDataDir: string): SearchIndex | null {
         }
       },
       remember(rootFolder, accessKey, entry) {
-        try {
-          upsertStmt.run(
-            rootFolder,
-            accessKey,
-            entry.diskPath,
-            JSON.stringify(entry.chain),
-            entry.fileName,
-            entry.sizeBytes,
-            entry.docType,
-            entry.storageType,
-            entry.containerMtimeMs,
-            Date.now(),
-            entry.emitCnpj,
-            entry.numero,
-            entry.serie,
-            entry.dataEmissao
-          )
-        } catch {
-          // cache é best-effort — uma falha ao gravar não deve afetar a busca em andamento
-        }
+        buffer.push([rootFolder, accessKey, entry])
+        if (buffer.length >= FLUSH_EVERY) flush()
       },
       close() {
+        flush()
         try {
           db.close()
         } catch {

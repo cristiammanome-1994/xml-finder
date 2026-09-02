@@ -32,6 +32,12 @@ const FULL_READ_CAP_BYTES = 20 * 1024 * 1024
 const PROGRESS_THROTTLE_MS = 150
 const ZIP_ENTRY_SNIFF_CAP = 10 * 1024 * 1024
 /**
+ * Quantos XMLs soltos são lidos ao mesmo tempo. Medido: em série a varredura fica limitada pela
+ * latência por arquivo (~99 arq/s em disco frio), não por CPU. Valor conservador o bastante para
+ * não afogar o disco nem estourar o limite de descritores de arquivo do processo.
+ */
+const XML_READ_CONCURRENCY = 12
+/**
  * Teto de tamanho descomprimido para descer em um ZIP/RAR aninhado. Sem isso, uma entrada
  * aninhada maliciosa poderia declarar um tamanho descomprimido enorme a partir de poucos bytes
  * comprimidos (zip bomb) e forçar alocação descontrolada de memória durante a descida recursiva.
@@ -129,7 +135,16 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
   const searchIndex: SearchIndex | null = options.userDataDir ? openSearchIndex(options.userDataDir) : null
   const containerMtimeCache = new Map<string, number | null>()
 
-  async function containerMtimeOf(diskPath: string): Promise<number | null> {
+  /**
+   * mtime do arquivo em disco que contém o resultado — o próprio XML, quando solto, ou o ZIP/RAR
+   * externo. É o que o índice usa depois para saber se o que foi memorizado ainda vale.
+   *
+   * Para XML solto o walker já trouxe o mtime, então `known` evita mais uma chamada ao sistema por
+   * resultado encontrado. Para entradas dentro de um pacote, `known` é o mtime da ENTRADA, não do
+   * pacote, então aí o stat é necessário mesmo (e fica em cache por pacote).
+   */
+  async function containerMtimeOf(diskPath: string, known: number | null): Promise<number | null> {
+    if (known !== null) return known
     if (containerMtimeCache.has(diskPath)) return containerMtimeCache.get(diskPath)!
     try {
       const stat = await fs.promises.stat(diskPath)
@@ -206,7 +221,7 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
       if (searchIndex) {
         const cacheable = matches.filter((m) => m.chave)
         if (cacheable.length > 0) {
-          const mtime = await containerMtimeOf(diskPath)
+          const mtime = await containerMtimeOf(diskPath, chain.length === 0 ? mtimeMs : null)
           if (mtime !== null) {
             for (const { chave } of cacheable) {
               const meta = noteMeta?.get(chave!)
@@ -315,7 +330,7 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
       chain: [],
       size,
       mtimeMs,
-      readPartial: () => readFilePartial(absPath, PARTIAL_READ_BYTES),
+      readPartial: () => readFilePartial(absPath, PARTIAL_READ_BYTES, size),
       readFull: () => fs.promises.readFile(absPath),
       openStream: async () => fs.createReadStream(absPath)
     })
@@ -580,6 +595,31 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
   }
 
   // --- Passagem principal: percorre a pasta raiz ---
+  /**
+   * XMLs soltos em disco são analisados com várias leituras em voo ao mesmo tempo.
+   *
+   * Cada arquivo custa um punhado de chamadas ao sistema (abrir, ler, fechar) e, medido em disco
+   * frio, a latência por arquivo — não a CPU — domina o tempo total: em série, 10 mil XMLs levaram
+   * ~100s (≈99 arq/s). As operações ficam quase todas esperando I/O, então sobrepô-las multiplica
+   * a vazão sem custo de CPU.
+   *
+   * ZIP/RAR continuam sendo processados um de cada vez (ver abaixo): cada um pode carregar um
+   * pacote inteiro em memória, e sobrepor vários multiplicaria o pico de uso de memória.
+   */
+  const inFlightXml = new Set<Promise<void>>()
+
+  function scheduleXml(absPath: string, size: number, mtimeMs: number): void {
+    const task = handleDiskXml(absPath, size, mtimeMs)
+      .catch((err) => reportError(absPath, 'desconhecido', (err as Error).message))
+      .finally(() => inFlightXml.delete(task))
+    inFlightXml.add(task)
+  }
+
+  /** Espera tudo que está em voo — antes de abrir um arquivo compactado e ao fim da varredura. */
+  async function drainXml(): Promise<void> {
+    if (inFlightXml.size > 0) await Promise.all([...inFlightXml])
+  }
+
   try {
     for await (const file of walkFolder(
       options.rootFolder,
@@ -593,8 +633,17 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
       if (!kind) kind = await sniffFileKind(file.absPath, file.size)
 
       if (kind === 'xml') {
-        await handleDiskXml(file.absPath, file.size, file.mtimeMs)
-      } else if (kind === 'zip') {
+        scheduleXml(file.absPath, file.size, file.mtimeMs)
+        if (inFlightXml.size >= XML_READ_CONCURRENCY) await Promise.race([...inFlightXml])
+        emitProgress()
+        continue
+      }
+
+      // Arquivos compactados: esvazia a fila de XMLs antes, para não somar o pico de memória de
+      // um pacote ao das leituras soltas em voo.
+      await drainXml()
+
+      if (kind === 'zip') {
         stats.zipCount++
         try {
           const zip = await openZipFromFile(file.absPath)
@@ -625,6 +674,9 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
       emitProgress()
     }
   } finally {
+    // Mesmo em cancelamento ou erro, espera as leituras em voo: elas ainda podem emitir
+    // resultados, e o 'done' não pode ser reportado antes delas.
+    await drainXml()
     stats.phase = hooks.isCancelled() ? 'cancelado' : 'concluido'
     stats.elapsedMs = Date.now() - startedAt
     searchIndex?.close()
@@ -639,11 +691,19 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
   return { stats, notFound, limitationNotes: [...limitationNotes] }
 }
 
-async function readFilePartial(absPath: string, maxBytes: number): Promise<Buffer> {
+/**
+ * Lê no máximo `maxBytes` do início do arquivo. `knownSize` vem do stat que o walker já fez —
+ * consultá-lo de novo aqui custaria mais uma chamada ao sistema por arquivo, e são elas que
+ * dominam o tempo de uma varredura grande.
+ */
+async function readFilePartial(absPath: string, maxBytes: number, knownSize: number): Promise<Buffer> {
+  // Arquivos que cabem inteiros no limite (o caso da esmagadora maioria das notas) saem em uma
+  // única chamada otimizada, em vez de abrir/ler/fechar manualmente.
+  if (knownSize <= maxBytes) return fs.promises.readFile(absPath)
+
   const fd = await fs.promises.open(absPath, 'r')
   try {
-    const stat = await fd.stat()
-    const size = Math.min(stat.size, maxBytes)
+    const size = Math.min(knownSize, maxBytes)
     const buf = Buffer.alloc(size)
     await fd.read(buf, 0, size, 0)
     return buf

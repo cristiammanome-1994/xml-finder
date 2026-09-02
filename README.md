@@ -114,17 +114,51 @@ src/
 
 ## Escala testada
 
-Medições reais (não estimativas), para dar noção do comportamento em volume:
+Medições reais (não estimativas), reproduzíveis com `scripts/bench.js`.
+
+**Acervo sintético de 100.000 XMLs** (~2,7 KB cada, em 360 subpastas ano/mês/dia), 3 repetições por
+cenário, reportando o menor tempo:
+
+| Cenário | Tempo | Vazão | Memória (pico) |
+|---|---|---|---|
+| 1 chave, a última do acervo (pior caso) | ~48 s | ~2.070 arq/s | 129 MB |
+| 1 chave inexistente (varre tudo) | ~49 s | ~2.040 arq/s | 131 MB |
+| 100 chaves espalhadas | ~50 s | ~1.990 arq/s | 132 MB |
+| 1.000 chaves espalhadas | ~52 s | ~1.940 arq/s | 135 MB |
+| 10.000 chaves espalhadas | ~52 s | ~1.940 arq/s | 141 MB |
+| **1.000 chaves, pesquisa repetida (via índice)** | **~0,55 s** | — | 130 MB |
+
+O que esses números mostram:
+
+- **A memória não cresce com o tamanho do acervo.** De 10.000 para 100.000 arquivos (10x), o pico
+  saiu de ~81 MB para ~129 MB — e o que cresce é o acúmulo de *resultados* (10.000 chaves
+  encontradas → 141 MB), não a varredura. A pasta é percorrida em streaming, sem carregar a árvore
+  em memória.
+- **O tempo é linear no número de arquivos**, ~2.000 arquivos/s de forma sustentada. Extrapolando na
+  mesma vazão, 1 milhão de XMLs levaria por volta de 8 minutos numa varredura completa
+  *(extrapolação, não medição)*.
+- **A pesquisa repetida via índice custa o mesmo com 10.000 ou 100.000 arquivos** (~0,51 s e
+  ~0,55 s): ela não varre o disco, então independe do tamanho do acervo.
+
+Outras medições:
 
 | Cenário | Resultado |
 |---|---|
 | ZIP de produção com 4.580 XMLs, buscando 3 chaves | ~1,5 s |
 | RAR com 400 XMLs, todas localizadas por conteúdo | ~0,2 s |
-| XML de lote com 300 notas em um único arquivo | todas as chaves localizadas |
+| XML de lote de 25 MB, chave no final do arquivo | localizada em ~0,2 s (varredura em streaming) |
 | Renderizar 1.000 resultados na tabela | ~0,2 s |
-| Renderizar 10.000 resultados na tabela | ~2,1 s (uma vez); trocar de filtro depois: ~5 ms; ~82 MB de memória |
+| Renderizar 10.000 resultados na tabela | ~2,1 s (uma vez); trocar de filtro depois: ~5 ms |
 
-A tabela de resultados não usa virtualização: a 10.000 linhas ela leva cerca de 2 s para montar e permanece fluida depois disso, o que foi considerado aceitável frente à complexidade que a virtualização acrescentaria.
+> ⚠️ **Sobre a variância**: medir I/O em desktop Windows é ruidoso — cache do sistema de arquivos e
+> antivírus fazem a mesma configuração alternar entre modo rápido e lento por vários segundos
+> seguidos (observamos até 7x de diferença sem nenhuma mudança de código). Por isso o benchmark
+> repete cada cenário e mostra mínimo, mediana e máximo, em vez de um número só. Os tempos acima são
+> os mínimos; as medianas ficaram ~10-20% acima.
+
+A tabela de resultados não usa virtualização: a 10.000 linhas ela leva cerca de 2 s para montar e
+permanece fluida depois disso, o que foi considerado aceitável frente à complexidade que a
+virtualização acrescentaria.
 
 ## Desenvolvimento
 
@@ -145,6 +179,8 @@ npm run dev
 | `npm run build` | Build de produção (main + preload + renderer) em `out/` |
 | `npm run typecheck` | Checagem de tipos (main e renderer) |
 | `npm test` | Roda a suíte de testes (`node --test`) da lógica pura do motor de busca |
+| `node scripts/bench.js gerar <qtd> <pasta>` | Gera um acervo sintético para teste de carga |
+| `node scripts/bench.js medir <pasta>` | Mede a busca sobre esse acervo (min/mediana/máx de N repetições) |
 | `npm run dist` | Build de produção + empacota instalador (`.exe` NSIS) e versão portable em `release/` |
 
 ## Limitações conhecidas

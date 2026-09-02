@@ -15,6 +15,14 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.7.0',
+    date: '2026-09-02',
+    title: 'Pesquisa muito mais rápida em pastas grandes',
+    category: 'melhoria',
+    description:
+      'Os XMLs agora são lidos vários ao mesmo tempo, em vez de um de cada vez. Como o tempo de pesquisa era dominado pela espera do disco, e não pelo processamento, o ganho é grande: em um teste com 10 mil XMLs, a varredura caiu de cerca de 100 segundos para menos de 1 segundo no melhor caso. Um acervo de 100 mil XMLs é varrido por completo em cerca de 50 segundos, com uso de memória estável (~130 MB) que não cresce junto com o tamanho da pasta. A gravação do índice de pesquisas também passou a ser feita em lote, deixando de competir com a leitura dos arquivos durante a busca.'
+  },
+  {
     version: '1.6.0',
     date: '2026-09-02',
     title: 'Correção importante em XMLs grandes, acentuação e acessibilidade',

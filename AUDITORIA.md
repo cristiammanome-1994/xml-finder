@@ -48,6 +48,16 @@ eram localizados, e os mais graves estavam escondidos justamente nos caminhos me
 
 ## P1 — Alta prioridade
 
+- [x] **Leitura de conteúdo estritamente sequencial.** *(encontrado pelo teste de carga, não pela
+      leitura de código)* O walker já lia metadados em paralelo desde a v1.5.0, mas a parte cara —
+      abrir e ler cada XML — continuava um arquivo de cada vez. Medido: 10 mil XMLs em disco frio
+      levavam ~100 s (≈99 arq/s), limitados por latência, não por CPU. Com 12 leituras em voo, o
+      mesmo cenário caiu para menos de 1 s no melhor caso e ~10 s no pior.
+- [x] **Uma transação SQLite por resultado encontrado.** O índice gravava cada acerto isoladamente,
+      cada um com sua própria confirmação em disco, competindo com a varredura. Agora acumula e
+      grava em lotes de 500 dentro de uma transação.
+- [x] **`stat` redundante por resultado encontrado.** Para XML solto, o mtime necessário ao índice já
+      tinha vindo do walker; o código consultava o disco de novo.
 - [x] **XML em ISO-8859-1 exibido corrompido.** Todo conteúdo era decodificado como UTF-8; a chave
       (ASCII) era achada, mas razão social, endereço e descrição apareciam ilegíveis no visualizador.
 - [x] **Perda silenciosa do histórico.** O arquivo era reescrito com `writeFile` direto; uma
@@ -175,6 +185,25 @@ Decisões deliberadas de **não** fazer:
 | `keyUtils` | dígito verificador, normalização, parsing da lista colada |
 | `classify` | assinatura de bytes de ZIP/RAR/XML |
 
+### Teste de carga — `scripts/bench.js`
+
+Harness que gera um acervo sintético e mede o worker real. Resultados com **100.000 XMLs** estão no
+README. Os três achados que importam:
+
+1. **Memória não cresce com o acervo** — 10x mais arquivos (10k → 100k) levou o pico de ~81 MB para
+   ~129 MB, e o que cresce é o acúmulo de resultados, não a varredura. Valida o desenho em streaming
+   do walker.
+2. **Tempo linear**, ~2.000 arquivos/s sustentados. Sem comportamento quadrático escondido.
+3. **Pesquisa repetida via índice independe do tamanho do acervo** — ~0,51 s com 10k arquivos e
+   ~0,55 s com 100k. É exatamente o que o índice deveria entregar, agora comprovado.
+
+**Sobre a confiabilidade da medição** — vale registrar porque afetou as conclusões: nas primeiras
+rodadas, o mesmo cenário oscilou entre ~950 ms e ~7.300 ms *sem nenhuma mudança de código*. Cheguei a
+formular a hipótese de um "custo por resultado encontrado" de ~4,8 ms a partir de uma única rodada;
+repetindo a medição, a hipótese caiu — era ruído de cache de sistema de arquivos e antivírus. Por
+isso o benchmark passou a repetir cada cenário e reportar mínimo, mediana e máximo. A lição vale para
+as próximas medições neste projeto: **uma rodada única aqui não é evidência.**
+
 Validações adicionais executadas nesta rodada (fora da suíte, por exigirem arquivos reais):
 
 - Regressão ponta a ponta com worker real — 12 verificações: XML solto, lote, dentro de ZIP,
@@ -196,4 +225,7 @@ Validações adicionais executadas nesta rodada (fora da suíte, por exigirem ar
 
 1. Detecção de duplicidade (P2) — barata agora que o índice existe: vira uma consulta agrupada.
 2. Virtualização da tabela, **se** o volume de resultados justificar (medir antes).
-3. Testes de carga documentados com 100k+ arquivos, para atualizar a seção "Escala testada" do README.
+3. ~~Testes de carga documentados com 100k+ arquivos~~ — feito nesta rodada; ver seção Testes.
+4. Medir em pasta de rede (SMB), onde a latência por arquivo é muito maior que em disco local — é o
+   cenário em que a concorrência de leitura deve render mais, e ainda não foi medido.
+5. Reavaliar `XML_READ_CONCURRENCY` (hoje 12) com base em medição em disco de rede e em HDD.
