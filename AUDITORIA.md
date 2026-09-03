@@ -249,12 +249,43 @@ gerar mais de um "encontrado"). Não é um bug a corrigir — é uma feature nov
 desempenho que caberia ao usuário decidir se quer pagar, provavelmente como uma ação separada
 ("Auditar duplicidade nesta pasta") em vez de comportamento automático de toda busca.
 
+## Medição em pasta de rede real (03/09/2026)
+
+Com autorização do usuário, medi contra uma pasta de produção real numa unidade de rede mapeada
+(414.912 arquivos, 414.412 XMLs, 451 RAR, ~34,3 GB). Só leitura — nada foi escrito ou alterado
+naquela pasta; identificadores de amostra vieram dos NOMES dos arquivos, sem ler conteúdo de nenhum
+XML real. Ferramenta: `scripts/bench-real-folder.js` (novo, mesmo espírito do `bench.js`, mas nunca
+gera dados na pasta alvo).
+
+**Achado 1 — varredura completa é impraticável nessa pasta**: uma busca por chave inexistente
+(força varrer tudo) passou de 1h28min sem terminar; interrompida a pedido do usuário. Para
+comparação, o equivalente com 100.000 arquivos sintéticos em disco local levava ~50s. Durante a
+espera, o processo mostrou CPU baixa e constante (~20%) e memória subindo/descendo de forma
+consistente com carregar e liberar um RAR grande — ou seja, estava progredindo de verdade, só que
+a maior parte do tempo é espera de rede, não processamento.
+
+**Achado 2 — o caso de uso real (lote pequeno) é rápido, e o índice entrega o prometido**: buscando
+10 chaves reais concentradas numa região da árvore (uso típico — um contador procurando um lote
+específico, não a base inteira), a busca resolveu tudo em ~11,1s abrindo um único ZIP encontrado no
+caminho. Repetindo a MESMA busca (via índice): **121ms — cerca de 92x mais rápido, zero arquivos
+revarridos**. Esse é o cenário de uso mais comum (buscar de novo, ou continuar no dia seguinte) e é
+exatamente onde o índice deveria brilhar.
+
+**Não confirmado**: um cenário com muitas chaves espalhadas em XMLs SOLTOS (não dentro de um único
+compactado) exigiria varrer uma fração grande da árvore nesta pasta específica — na prática, custaria
+tempo comparável ao Achado 1. Por isso não cheguei a comparar `XML_READ_CONCURRENCY` (hoje 12) contra
+um valor maior nesta pasta; ficou como próximo passo caso o usuário quiser investir outra rodada.
+
 ## Próximos Passos
 
 1. **Decisão pendente**: vale implementar duplicidade como modo de auditoria opt-in (mais lento,
-   varre tudo), dado o trade-off acima? Ou deixar de fora do escopo da ferramenta?
+   varre tudo), dado o trade-off documentado acima na seção de duplicidade? Ou deixar de fora do
+   escopo da ferramenta?
 2. Virtualização da tabela, **se** o volume de resultados justificar (medir antes).
 3. ~~Testes de carga documentados com 100k+ arquivos~~ — feito; ver seção Testes.
-4. Medir em pasta de rede (SMB) — bloqueado nesta rodada por falta de um caminho de rede acessível
-   para medir de verdade. É o cenário em que a concorrência de leitura deve render mais.
-5. Reavaliar `XML_READ_CONCURRENCY` (hoje 12) com base em medição em disco de rede e em HDD.
+4. ~~Medir em pasta de rede (SMB)~~ — feito nesta rodada; ver seção acima. Resultado: uso típico
+   (lote pequeno) é rápido, índice funciona muito bem; varredura completa é impraticável nesta pasta
+   específica, mas isso é esperado dado o volume (415k arquivos, 34GB) e não chega a ser um problema
+   do programa em si — é o custo real de acessar 415 mil arquivos individuais por rede.
+5. Testar `XML_READ_CONCURRENCY` mais alto especificamente contra XMLs soltos em rede (não dentro de
+   compactado) — não foi possível isolar esse caminho nesta pasta sem outra rodada longa.

@@ -156,6 +156,23 @@ Outras medições:
 > repete cada cenário e mostra mínimo, mediana e máximo, em vez de um número só. Os tempos acima são
 > os mínimos; as medianas ficaram ~10-20% acima.
 
+### Pasta de rede real (produção)
+
+Medido contra uma pasta de rede de produção com 414.912 arquivos (414.412 XMLs, ~34,3 GB) — não um
+acervo sintético. Só leitura, via `scripts/bench-real-folder.js`.
+
+| Cenário | Resultado |
+|---|---|
+| Lote de 10 chaves reais concentradas (uso típico — buscar um lote específico) | ~11,1 s |
+| As mesmas 10 chaves, buscadas de novo (via índice) | ~121 ms (≈92x mais rápido, 0 arquivos revarridos) |
+| Varredura completa forçada (chave inexistente) | não concluiu em 1h28min de espera — impraticável nesta pasta |
+
+O contraste importa: **o uso do dia a dia (buscar um lote) é rápido e o índice entrega ganho real**;
+uma varredura completa de 415 mil arquivos por uma unidade de rede mapeada, por outro lado, é
+dominada por latência de rede por arquivo, não pelo programa — o mesmo volume em disco local (teste
+sintético acima) leva ~50s, não mais de 1 hora. Isso não é uma limitação do XML Finder especificamente:
+é o custo inerente de acessar centenas de milhares de arquivos individuais por SMB.
+
 A tabela de resultados não usa virtualização: a 10.000 linhas ela leva cerca de 2 s para montar e
 permanece fluida depois disso, o que foi considerado aceitável frente à complexidade que a
 virtualização acrescentaria.
@@ -181,6 +198,7 @@ npm run dev
 | `npm test` | Roda a suíte de testes (`node --test`) da lógica pura do motor de busca |
 | `node scripts/bench.js gerar <qtd> <pasta>` | Gera um acervo sintético para teste de carga |
 | `node scripts/bench.js medir <pasta>` | Mede a busca sobre esse acervo (min/mediana/máx de N repetições) |
+| `node scripts/bench-real-folder.js "<pasta>"` | Mede a busca contra uma pasta real (rede/produção) — só leitura, nunca escreve na pasta alvo |
 | `npm run dist` | Build de produção + empacota instalador (`.exe` NSIS) e versão portable em `release/` |
 
 ## Limitações conhecidas
