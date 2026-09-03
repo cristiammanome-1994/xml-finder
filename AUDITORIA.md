@@ -80,8 +80,8 @@ eram localizados, e os mais graves estavam escondidos justamente nos caminhos me
 - [x] Numeração duplicada no estado inicial ("1. 1. Selecione a pasta raiz").
 - [ ] Virtualização da tabela de resultados (hoje ~2s para 10.000 linhas; decisão consciente
       documentada no README — só vale a pena se o volume de *resultados* crescer).
-- [ ] Detecção de duplicidade (mesma chave em dois locais). Hoje a busca para na primeira
-      ocorrência, o que é correto para "onde está", mas não responde "quantas cópias existem".
+- [ ] **Detecção de duplicidade — tentada e revertida em 03/09, ver nota abaixo.** Precisa de decisão
+      de escopo antes de tentar de novo.
 
 ## P3 — Futuro
 
@@ -221,11 +221,40 @@ Validações adicionais executadas nesta rodada (fora da suíte, por exigirem ar
 - RAR ainda é lido inteiro em memória — limitação da biblioteca WASM, não do nosso código.
 - Metadados por nota não disponíveis no modo de varredura de arquivo grande.
 
+## Tentativa revertida: detecção de duplicidade via índice (03/09/2026)
+
+Implementei e depois reverti — antes de qualquer commit — uma versão de detecção de duplicidade que
+usava o índice de pesquisa (SQLite) para lembrar todo local onde uma chave já apareceu, e avisar
+quando o local atual não era o único. Parecia barata, exatamente como o passo anterior desta lista
+sugeria. Um teste com dois cenários controlados mostrou que o desenho não funciona:
+
+- **Falso positivo**: renomear/mover um arquivo (cenário comum e inofensivo) fazia a próxima busca
+  acusar "duplicidade", apontando para o caminho antigo que não existe mais.
+- **Falso negativo**: com duas cópias REAIS e simultâneas da mesma chave na mesma pasta, a busca
+  nunca detectava a segunda — porque a saída antecipada (parar assim que a chave é resolvida) impede
+  a segunda cópia de sequer ser lida, em qualquer número de repetições da busca.
+
+A causa raiz: a saída antecipada — uma característica correta e deliberada do motor, validada por
+benchmark — é estruturalmente incompatível com "notar quando a mesma chave aparece de novo", porque
+ela existe justamente para parar de procurar assim que a chave é resolvida. Um índice que só registra
+"a última vez que vi isso" não consegue diferenciar "essa chave mudou de lugar" de "essa chave existe
+em dois lugares ao mesmo tempo" — são o mesmo sintoma (duas gravações, locais diferentes) com causas
+opostas.
+
+Detecção de duplicidade real exigiria um modo de busca genuinamente diferente — que **não** pare na
+primeira ocorrência de cada chave, e sim continue varrendo a pasta inteira mesmo depois de tudo
+resolvido, só para confirmar unicidade. Isso é mais lento por design (perde a otimização que motivou
+boa parte do trabalho de performance desta auditoria) e muda o modelo de resultado (uma chave pode
+gerar mais de um "encontrado"). Não é um bug a corrigir — é uma feature nova, com um trade-off de
+desempenho que caberia ao usuário decidir se quer pagar, provavelmente como uma ação separada
+("Auditar duplicidade nesta pasta") em vez de comportamento automático de toda busca.
+
 ## Próximos Passos
 
-1. Detecção de duplicidade (P2) — barata agora que o índice existe: vira uma consulta agrupada.
+1. **Decisão pendente**: vale implementar duplicidade como modo de auditoria opt-in (mais lento,
+   varre tudo), dado o trade-off acima? Ou deixar de fora do escopo da ferramenta?
 2. Virtualização da tabela, **se** o volume de resultados justificar (medir antes).
-3. ~~Testes de carga documentados com 100k+ arquivos~~ — feito nesta rodada; ver seção Testes.
-4. Medir em pasta de rede (SMB), onde a latência por arquivo é muito maior que em disco local — é o
-   cenário em que a concorrência de leitura deve render mais, e ainda não foi medido.
+3. ~~Testes de carga documentados com 100k+ arquivos~~ — feito; ver seção Testes.
+4. Medir em pasta de rede (SMB) — bloqueado nesta rodada por falta de um caminho de rede acessível
+   para medir de verdade. É o cenário em que a concorrência de leitura deve render mais.
 5. Reavaliar `XML_READ_CONCURRENCY` (hoje 12) com base em medição em disco de rede e em HDD.
