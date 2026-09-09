@@ -201,6 +201,23 @@ npm run dev
 | `node scripts/bench-real-folder.js "<pasta>"` | Mede a busca contra uma pasta real (rede/produção) — só leitura, nunca escreve na pasta alvo |
 | `npm run dist` | Build de produção + empacota instalador (`.exe` NSIS) e versão portable em `release/` |
 
+### Desenvolvimento assistido por IA (Claude Code)
+
+O repositório inclui, em [`.claude/agents/`](.claude/agents/), 14 subagents do
+[VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents),
+escolhidos a dedo para a stack real do projeto (Electron + TypeScript + React, sem API/banco/nuvem) —
+em vez de instalar categorias inteiras, que trariam dezenas de especialistas irrelevantes (PHP, Rails,
+Kubernetes etc.):
+
+| Grupo | Agentes |
+|---|---|
+| Core da stack | `electron-pro`, `typescript-pro`, `react-specialist`, `node-specialist` |
+| Qualidade/segurança | `performance-engineer`, `security-auditor`, `test-automator`, `code-reviewer`, `architect-reviewer`, `accessibility-tester` |
+| Manutenção | `refactoring-specialist`, `documentation-engineer`, `build-engineer`, `dependency-manager` |
+
+O histórico completo de decisões técnicas, achados de auditoria e testes de carga (incluindo medições
+em pasta de rede de produção) está documentado em [AUDITORIA.md](AUDITORIA.md).
+
 ## Limitações conhecidas
 
 - **RAR multivolume** (`.part2.rar`, `.r00`, ...) não é suportado pela biblioteca de leitura de RAR — a ferramenta avisa quando detecta esse padrão de nome.
