@@ -1,10 +1,23 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { FileLocation } from '@shared/types'
-import { openZipFromFile, openZipFromBuffer, type OpenZip } from './zipReader'
-import { openRarFromBuffer, type OpenRarFile } from './rarReader'
+// Extensão .ts explícita (em vez do padrão dos outros arquivos de engine) porque este módulo
+// também é carregado diretamente pelo runner de testes do Node, cujo resolvedor ESM exige o
+// especificador exato do arquivo — o bundler de produção (Vite) aceita o mesmo especificador.
+import { openZipFromFile, openZipFromBuffer, type OpenZip } from './zipReader.ts'
+import { openRarFromBuffer, type OpenRarFile } from './rarReader.ts'
+import { MAX_NESTED_ARCHIVE_BYTES, formatMegabytes } from './archiveLimits.ts'
 
-/** Lê o conteúdo de um arquivo (XML ou outro) a partir de uma FileLocation, descendo pelos níveis de compactação. */
+/**
+ * Lê o conteúdo de um arquivo (XML ou outro) a partir de uma FileLocation, descendo pelos níveis
+ * de compactação.
+ *
+ * Usado fora do fluxo de busca — "Ver XML" e "Extrair" na UI. Um item pode ter sido encontrado por
+ * NOME (sem nunca ter seu conteúdo lido durante a busca em si), então o teto de zip bomb que a
+ * busca aplica ao descer em arquivo aninhado (searchEngine.ts) precisa ser reaplicado aqui: sem
+ * isso, abrir/extrair um resultado cujo caminho passa por uma entrada com tamanho descomprimido
+ * malicioso descompactaria ela inteira em memória sem limite.
+ */
 export async function readLocationContent(location: FileLocation): Promise<Buffer> {
   if (location.chain.length === 0) {
     return fs.promises.readFile(location.diskPath)
@@ -24,6 +37,11 @@ export async function readLocationContent(location: FileLocation): Promise<Buffe
       try {
         const entry = zip.entries.find((e) => e.fileName === step.entryPath)
         if (!entry) throw new Error(`Entrada não encontrada no ZIP: ${step.entryPath}`)
+        if (entry.size > MAX_NESTED_ARCHIVE_BYTES) {
+          throw new Error(
+            `"${step.entryPath}" tem ${formatMegabytes(entry.size)}, acima do limite de ${formatMegabytes(MAX_NESTED_ARCHIVE_BYTES)} para leitura`
+          )
+        }
         const content = await zip.readEntryFull(entry)
         if (isLast) return content
         currentBuffer = content
@@ -34,6 +52,13 @@ export async function readLocationContent(location: FileLocation): Promise<Buffe
       const rar: OpenRarFile = currentBuffer
         ? await openRarFromBuffer(currentBuffer)
         : await openRarFromBuffer(await fs.promises.readFile(currentDiskPath))
+      const entryInfo = rar.entries.find((e) => e.fileName === step.entryPath)
+      if (!entryInfo) throw new Error(`Entrada não encontrada no RAR: ${step.entryPath}`)
+      if (entryInfo.size > MAX_NESTED_ARCHIVE_BYTES) {
+        throw new Error(
+          `"${step.entryPath}" tem ${formatMegabytes(entryInfo.size)}, acima do limite de ${formatMegabytes(MAX_NESTED_ARCHIVE_BYTES)} para leitura`
+        )
+      }
       const extracted: Map<string, Buffer> = await rar.readEntries([step.entryPath])
       const content: Buffer | undefined = extracted.get(step.entryPath)
       if (!content) throw new Error(`Entrada não encontrada no RAR: ${step.entryPath}`)

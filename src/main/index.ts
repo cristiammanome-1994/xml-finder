@@ -12,13 +12,17 @@ import type {
   HistoryEntry,
   ResultItem
 } from '@shared/types'
-import { validateAccessKey } from '@shared/keyUtils'
 import { extractSingleFile, readLocationContent } from './engine/extractor'
 import { decodeXmlBuffer } from './engine/xmlEncoding'
 import { appendHistoryEntry, clearHistory, loadHistory } from './engine/history'
+import { PathScope } from './pathScope'
 
 let mainWindow: BrowserWindow | null = null
 let activeWorker: Worker | null = null
+
+/** Ver PathScope: valida que caminhos vindos do renderer via IPC pertencem a uma pasta já
+ * legitimamente associada a uma busca (real ou reaberta do histórico) nesta sessão. */
+const pathScope = new PathScope()
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -70,8 +74,6 @@ function registerIpcHandlers(): void {
     return result.filePaths[0]
   })
 
-  ipcMain.handle('key:validate', (_e, identifier: string) => validateAccessKey(identifier))
-
   ipcMain.handle('search:start', async (_e, options: SearchOptions) => {
     await startSearch(options)
   })
@@ -81,10 +83,12 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('shell:openContainingFolder', (_e, targetPath: string) => {
+    pathScope.assertKnown(targetPath)
     shell.showItemInFolder(targetPath)
   })
 
   ipcMain.handle('file:readXmlContent', async (_e, location: FileLocation) => {
+    pathScope.assertKnown(location.diskPath)
     const buf = await readLocationContent(location)
     // Respeita o encoding declarado no XML: muitos emissores ainda geram ISO-8859-1, e decodificar
     // como UTF-8 corromperia todo texto acentuado (razão social, endereço) na visualização.
@@ -92,6 +96,7 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('file:extractSingle', async (_e, req: ExtractRequest) => {
+    pathScope.assertKnown(req.location.diskPath)
     return extractSingleFile(req.location, req.fileName, req.destinationFolder)
   })
 
@@ -108,7 +113,14 @@ function registerIpcHandlers(): void {
     return result.filePath
   })
 
-  ipcMain.handle('history:list', () => loadHistory(app.getPath('userData')))
+  ipcMain.handle('history:list', async () => {
+    const entries = await loadHistory(app.getPath('userData'))
+    // Reabrir uma pesquisa do histórico deve continuar funcionando mesmo que a pasta pesquisada
+    // seja diferente da última busca ao vivo desta sessão — por isso toda pasta do histórico
+    // também entra no conjunto de pastas conhecidas, assim que listada.
+    for (const entry of entries) pathScope.remember(entry.rootFolder)
+    return entries
+  })
 
   ipcMain.handle('history:append', async (_e, entry: Omit<HistoryEntry, 'id' | 'date'>) => {
     const full: HistoryEntry = { ...entry, id: randomUUID(), date: Date.now() }
@@ -165,6 +177,7 @@ async function startSearch(options: SearchOptions): Promise<void> {
     emitFatalSearchError(`Pasta não encontrada: ${options.rootFolder}`)
     return
   }
+  pathScope.remember(options.rootFolder)
 
   const workerPath = path.join(__dirname, 'searchWorker.js')
   if (!fs.existsSync(workerPath)) {

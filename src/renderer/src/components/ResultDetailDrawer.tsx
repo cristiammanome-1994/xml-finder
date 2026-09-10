@@ -20,30 +20,49 @@ export function ResultDetailDrawer() {
   const isInsideArchive = item.location.chain.length > 0
   const internalPath = item.location.chain.map((c) => c.entryPath).join(' / ')
 
+  // As quatro ações abaixo chamam IPC/clipboard, que podem falhar (arquivo movido desde a busca,
+  // disco cheio, permissão negada, pasta de destino sem acesso). Sem captura, a promessa rejeitada
+  // falha silenciosamente — o botão "não faz nada" aos olhos de quem clicou.
   async function copyPath(): Promise<void> {
-    await navigator.clipboard.writeText(item!.location.diskPath)
-    showToast('Caminho copiado')
+    try {
+      await navigator.clipboard.writeText(item!.location.diskPath)
+      showToast('Caminho copiado')
+    } catch (err) {
+      showToast(`Erro ao copiar caminho: ${(err as Error).message}`)
+    }
   }
 
   async function copyFullPath(): Promise<void> {
-    const text = isInsideArchive ? `${item!.location.diskPath}\n→ ${internalPath}` : item!.location.diskPath
-    await navigator.clipboard.writeText(text)
-    showToast('Caminho completo copiado')
+    try {
+      const text = isInsideArchive ? `${item!.location.diskPath}\n→ ${internalPath}` : item!.location.diskPath
+      await navigator.clipboard.writeText(text)
+      showToast('Caminho completo copiado')
+    } catch (err) {
+      showToast(`Erro ao copiar caminho: ${(err as Error).message}`)
+    }
   }
 
   async function openFolder(): Promise<void> {
-    await window.api.openContainingFolder(item!.location.diskPath)
+    try {
+      await window.api.openContainingFolder(item!.location.diskPath)
+    } catch (err) {
+      showToast(`Erro ao abrir pasta: ${(err as Error).message}`)
+    }
   }
 
   async function extract(): Promise<void> {
-    const dest = await window.api.selectDestinationFolder()
-    if (!dest) return
-    const savedPath = await window.api.extractSingle({
-      location: item!.location,
-      fileName: item!.fileName,
-      destinationFolder: dest
-    })
-    showToast(`XML extraído para ${savedPath}`)
+    try {
+      const dest = await window.api.selectDestinationFolder()
+      if (!dest) return
+      const savedPath = await window.api.extractSingle({
+        location: item!.location,
+        fileName: item!.fileName,
+        destinationFolder: dest
+      })
+      showToast(`XML extraído para ${savedPath}`)
+    } catch (err) {
+      showToast(`Erro ao extrair XML: ${(err as Error).message}`)
+    }
   }
 
   return (

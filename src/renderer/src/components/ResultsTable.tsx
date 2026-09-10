@@ -32,14 +32,22 @@ export function ResultsTable() {
   }, [allResults, filter])
 
   async function handleExport(format: 'xlsx' | 'csv'): Promise<void> {
-    const path = await window.api.exportResults(allResults, format)
-    if (path) showToast(`Exportado para ${path}`)
+    try {
+      const path = await window.api.exportResults(allResults, format)
+      if (path) showToast(`Exportado para ${path}`)
+    } catch (err) {
+      showToast(`Erro ao exportar: ${(err as Error).message}`)
+    }
   }
 
   async function handleExportNotFound(): Promise<void> {
     if (notFound.length === 0) return
-    const path = await window.api.exportResults(notFound, 'xlsx')
-    if (path) showToast(`Não encontrados exportados para ${path}`)
+    try {
+      const path = await window.api.exportResults(notFound, 'xlsx')
+      if (path) showToast(`Não encontrados exportados para ${path}`)
+    } catch (err) {
+      showToast(`Erro ao exportar: ${(err as Error).message}`)
+    }
   }
 
   if (!hasSearched && !searching) {

@@ -28,11 +28,24 @@ function loadUnrarModule(): typeof import('node-unrar-js') {
   return unrarModuleCache!
 }
 
+/**
+ * Extrai o `ArrayBuffer` exato correspondente ao `Buffer`, copiando só quando ele é uma view
+ * parcial de um `ArrayBuffer` maior (pool interno do Node, usado para buffers pequenos — acima de
+ * ~8KB o Node já aloca um `ArrayBuffer` dedicado, que é o caso comum de RAR em disco e de entradas
+ * aninhadas extraídas). Nesse caso comum, evita duplicar em memória o arquivo RAR inteiro só para
+ * obter um `ArrayBuffer` que já era exatamente esse.
+ */
+function toExactArrayBuffer(buffer: Buffer): ArrayBuffer {
+  if (buffer.byteOffset === 0 && buffer.byteLength === buffer.buffer.byteLength) {
+    return buffer.buffer as ArrayBuffer
+  }
+  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer
+}
+
 function getWasmBinary(): ArrayBuffer {
   if (!wasmBinaryCache) {
     const wasmPath = require.resolve('node-unrar-js/dist/js/unrar.wasm')
-    const buf = fs.readFileSync(wasmPath)
-    wasmBinaryCache = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer
+    wasmBinaryCache = toExactArrayBuffer(fs.readFileSync(wasmPath))
   }
   return wasmBinaryCache
 }
@@ -40,7 +53,7 @@ function getWasmBinary(): ArrayBuffer {
 /** Abre um RAR a partir de um buffer em memória (funciona tanto para RAR em disco quanto aninhado). */
 export async function openRarFromBuffer(buffer: Buffer): Promise<OpenRarFile> {
   const unrar = loadUnrarModule()
-  const data = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer
+  const data = toExactArrayBuffer(buffer)
 
   const extractor = await unrar.createExtractorFromData({
     data,

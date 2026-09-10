@@ -23,6 +23,7 @@ import { openSearchIndex, type SearchIndex } from './searchIndex'
 import { PendingIdentifiers, type IdentifierMatch } from './pendingIdentifiers'
 import { decodeXmlBuffer } from './xmlEncoding'
 import { scanStreamForXml } from './streamScanner'
+import { MAX_NESTED_ARCHIVE_BYTES, formatMegabytes } from './archiveLimits'
 
 const PARTIAL_READ_BYTES = 8 * 1024
 // Teto para ler um XML inteiro em memória atrás da chave. Precisa acomodar arquivos de lote
@@ -37,16 +38,6 @@ const ZIP_ENTRY_SNIFF_CAP = 10 * 1024 * 1024
  * não afogar o disco nem estourar o limite de descritores de arquivo do processo.
  */
 const XML_READ_CONCURRENCY = 12
-/**
- * Teto de tamanho descomprimido para descer em um ZIP/RAR aninhado. Sem isso, uma entrada
- * aninhada maliciosa poderia declarar um tamanho descomprimido enorme a partir de poucos bytes
- * comprimidos (zip bomb) e forçar alocação descontrolada de memória durante a descida recursiva.
- */
-const MAX_NESTED_ARCHIVE_BYTES = 200 * 1024 * 1024
-
-function formatMegabytes(bytes: number): string {
-  return `${Math.round(bytes / (1024 * 1024))}MB`
-}
 
 /**
  * Um arquivo XML a ser avaliado, junto com as formas de ler seu conteúdo. As leituras são
@@ -495,12 +486,27 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
       }
       const kind = resolveEntryKind(entry.fileName)
       if (kind === 'other') continue
-      if ((kind === 'zip' || kind === 'rar') && entry.size > MAX_NESTED_ARCHIVE_BYTES) {
-        stats[kind === 'zip' ? 'zipCount' : 'rarCount']++
-        limitationNotes.add(
-          `Arquivo aninhado "${entry.fileName}" excede o limite de ${formatMegabytes(MAX_NESTED_ARCHIVE_BYTES)} para descompactação e foi ignorado.`
-        )
-        continue
+      if (kind === 'zip' || kind === 'rar') {
+        // Descarta ANTES de extrair — o extrator RAR materializa cada candidato inteiro em
+        // memória na chamada em lote abaixo, então tanto o teto de tamanho quanto o de
+        // profundidade precisam ser aplicados aqui. Checar profundidade só depois de extrair
+        // (como este código fazia antes) desperdiça exatamente a proteção contra zip bomb que o
+        // teto de tamanho existe para dar: um RAR no último nível permitido com várias entradas
+        // logo abaixo do teto seria extraído por inteiro só para ser descartado em seguida.
+        if (entry.size > MAX_NESTED_ARCHIVE_BYTES) {
+          stats[kind === 'zip' ? 'zipCount' : 'rarCount']++
+          limitationNotes.add(
+            `Arquivo aninhado "${entry.fileName}" excede o limite de ${formatMegabytes(MAX_NESTED_ARCHIVE_BYTES)} para descompactação e foi ignorado.`
+          )
+          continue
+        }
+        if (depthRemaining <= 0) {
+          stats[kind === 'zip' ? 'zipCount' : 'rarCount']++
+          limitationNotes.add(
+            `Profundidade máxima de arquivos compactados atingida — não foi possível abrir "${entry.fileName}".`
+          )
+          continue
+        }
       }
       candidates.push({ entry, kind })
     }
@@ -530,13 +536,9 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
       if (kind === 'xml') {
         await handleRarEntryXml(entry, buf, diskPath, parentChain)
       } else {
+        // depthRemaining <= 0 já foi filtrado ao montar `candidates`, acima — chegar aqui
+        // significa que ainda há profundidade disponível para descer.
         stats[kind === 'zip' ? 'zipCount' : 'rarCount']++
-        if (depthRemaining <= 0) {
-          limitationNotes.add(
-            `Profundidade máxima de arquivos compactados atingida — não foi possível abrir "${entry.fileName}".`
-          )
-          continue
-        }
         const nextChain = [...parentChain, { containerType: 'rar' as const, entryPath: entry.fileName }]
         if (kind === 'zip') await descendIntoZipBuffer(buf, diskPath, nextChain, depthRemaining - 1)
         else await descendIntoRarBuffer(buf, diskPath, nextChain, depthRemaining - 1)

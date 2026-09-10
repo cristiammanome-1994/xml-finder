@@ -26,14 +26,26 @@ export async function appendHistoryEntry(userDataDir: string, entry: HistoryEntr
   const current = await loadHistory(userDataDir)
   let next = [entry, ...current].slice(0, MAX_HISTORY_ENTRIES)
 
-  let serialized = JSON.stringify(next)
+  // Serializa cada entrada uma única vez em vez de reserializar o array inteiro a cada corte —
+  // roda no processo main (não num worker), então cada JSON.stringify do array completo bloqueia
+  // a janela do Electron; um histórico grande cortado entrada por entrada podia significar dezenas
+  // de reserializações completas de um payload de vários MB.
+  const serializedEntries = next.map((e) => JSON.stringify(e))
+  // [ e1 , e2 , ... , eN ] — 2 colchetes + 1 vírgula entre cada par de entradas.
+  let totalBytes =
+    serializedEntries.reduce((sum, s) => sum + s.length, 0) + 2 + Math.max(0, serializedEntries.length - 1)
+
   // Descarta as pesquisas mais antigas até caber no orçamento de tamanho — a mais recente
   // (a que acabou de ser adicionada) nunca é removida, mesmo que sozinha já ultrapasse o limite.
-  while (serialized.length > MAX_HISTORY_BYTES && next.length > 1) {
+  while (totalBytes > MAX_HISTORY_BYTES && next.length > 1) {
+    const removed = serializedEntries.pop()!
     next = next.slice(0, -1)
-    serialized = JSON.stringify(next)
+    totalBytes -= removed.length + 1
   }
 
+  // Reconstrução manual do array serializado — equivalente byte a byte a JSON.stringify(next),
+  // já que JSON.stringify sem parâmetro de indentação não insere espaço entre elementos.
+  const serialized = `[${serializedEntries.join(',')}]`
   await writeFileAtomic(historyFilePath(userDataDir), serialized)
   return next
 }

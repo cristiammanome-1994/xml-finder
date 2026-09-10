@@ -15,6 +15,14 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.8.0',
+    date: '2026-09-10',
+    title: 'Reforço de segurança e correções de estabilidade',
+    category: 'correcao',
+    description:
+      'Uma auditoria adicional encontrou e corrigiu alguns pontos importantes: o limite de proteção contra arquivos compactados maliciosos, que já existia durante a busca, agora também vale ao clicar em "Ver XML" ou "Extrair" num resultado. Um arquivo RAR aninhado no último nível de profundidade permitido deixou de ser descompactado por inteiro antes de ser descartado. A exportação para CSV passou a neutralizar valores que poderiam ser interpretados como fórmula pelo Excel. Ações como copiar caminho, abrir pasta e exportar agora mostram um aviso quando algo dá errado, em vez de simplesmente não fazer nada. O histórico de pesquisas ficou mais leve para gravar quando está próximo do limite de tamanho, e a leitura de arquivos RAR deixou de duplicar o arquivo inteiro em memória desnecessariamente.'
+  },
+  {
     version: '1.7.0',
     date: '2026-09-02',
     title: 'Pesquisa muito mais rápida em pastas grandes',

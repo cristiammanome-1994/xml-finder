@@ -1,6 +1,6 @@
 # Auditoria do Projeto — XML Finder
 
-Registro da auditoria técnica e das correções implementadas. Atualizado em 02/09/2026 (v1.6.0).
+Registro da auditoria técnica e das correções implementadas. Atualizado em 10/09/2026 (v1.8.0).
 
 ## Escopo real do projeto
 
@@ -69,6 +69,58 @@ eram localizados, e os mais graves estavam escondidos justamente nos caminhos me
       eram `div`/`tr` clicáveis, sem foco nem ativação por teclado; nenhum overlay fechava com Esc.
 - [x] **CT-e nunca identificado.** A regex procurava `<infCTe>`, mas o schema real usa `<infCte>`.
       *(encontrado ao escrever os testes)*
+
+## P1 — Alta prioridade (rodada 4, 10/09/2026 — auditoria multi-agente)
+
+- [x] **Teto de zip bomb ausente no caminho "Ver XML"/"Extrair".** `extractor.ts` descia pela chain
+      de ZIP/RAR sem nunca checar `MAX_NESTED_ARCHIVE_BYTES` — a proteção só existia durante a
+      descida feita pela BUSCA em si. Um item encontrado por NOME (conteúdo nunca lido) podia
+      apontar para uma entrada-bomba que só seria materializada ao abrir/extrair. Corrigido: o teto
+      (extraído para `archiveLimits.ts`, compartilhado com `searchEngine.ts`) agora é checado em
+      cada passo da chain, inclusive os intermediários.
+- [x] **RAR aninhado extraído para memória antes do teto de profundidade descartá-lo.**
+      `processRarEntries` só checava `depthRemaining <= 0` DEPOIS de já ter extraído o lote inteiro
+      via `rar.readEntries()` — o caminho ZIP já fazia isso na ordem certa (checa antes de ler). Com
+      profundidade padrão (3), um RAR no último nível com entradas logo abaixo do teto de tamanho
+      era extraído por inteiro só para ser descartado em seguida. Corrigido: profundidade e tamanho
+      são checados juntos, antes de montar o lote a extrair.
+- [x] **Handlers IPC confiavam cegamente no `FileLocation`/caminho vindo do renderer.**
+      `file:readXmlContent`, `file:extractSingle` e `shell:openContainingFolder` nunca validavam que
+      o caminho pertencia a uma busca real. Um renderer comprometido (dependência maliciosa, bug
+      futuro do Electron) podia pedir a leitura de qualquer arquivo do sistema, ou extrair conteúdo
+      com nome controlado para qualquer pasta gravável (ex.: Startup do Windows). Corrigido com
+      `PathScope` (novo, `src/main/pathScope.ts`, testável isoladamente): só aceita caminhos dentro
+      de uma pasta já associada a uma busca real ou a uma entrada do histórico listada nesta sessão.
+- [x] **Sniff de arquivo "outro" tipo (PDF de DANFe, TXT etc.) sem concorrência.** Diferente do
+      `stat` e da leitura de XML (já paralelizados), `sniffFileKind` ainda processa um arquivo de
+      cada vez — mesmo tipo de gargalo já corrigido nos outros dois casos, mas nesta terceira
+      categoria. **Não implementado nesta rodada** — ver "Próximos Passos".
+
+## P2 — Melhorias (rodada 4)
+
+- [x] **CSV/Excel Formula Injection na exportação CSV.** Um XML malicioso na pasta pesquisada podia
+      ter nome ou CNPJ extraído começando com `=`, `+`, `-` ou `@` — ao abrir o CSV exportado no
+      Excel, isso é interpretado como fórmula (a exportação `.xlsx` via ExcelJS já era imune, por
+      gravar tipo string explícito no OOXML). Corrigido: valor é prefixado com apóstrofo antes de
+      escrever no CSV quando começa com um desses caracteres.
+- [x] **6 ações assíncronas na UI sem tratamento de erro.** `copyPath`, `copyFullPath`, `openFolder`,
+      `extract` (`ResultDetailDrawer.tsx`) e `handleExport`, `handleExportNotFound`
+      (`ResultsTable.tsx`) não tinham `try/catch` — uma falha real (arquivo movido, disco cheio,
+      `.xlsx` aberto no Excel, ou agora também uma rejeição do `PathScope`) virava promessa não
+      tratada, sem nenhum aviso ao usuário. Corrigido: todas as seis agora mostram um toast de erro.
+- [x] **`validateKey` (preload + handler IPC `key:validate`) era superfície morta.** Nenhum
+      componente do renderer chamava — `IdentifiersInput.tsx` já validava localmente, sem IPC, por
+      ser lógica pura. Removido dos dois lados.
+- [x] **Reserialização completa e repetida do histórico durante o corte por tamanho.**
+      `appendHistoryEntry` rodava no processo MAIN (não num worker) e fazia `JSON.stringify` do
+      array inteiro a cada entrada removida no laço de corte — um histórico grande podia significar
+      dezenas de reserializações completas de um payload de vários MB, bloqueando a janela do
+      Electron. Corrigido: cada entrada é serializada uma vez só; o corte usa os tamanhos já
+      calculados.
+- [x] **Cópia dupla do buffer ao abrir RAR.** `buffer.buffer.slice(...)` sempre copiava o
+      `ArrayBuffer` inteiro, mesmo quando o `Buffer` já ocupava o `ArrayBuffer` por completo (caso
+      comum de `fs.readFile` para arquivos RAR reais, > 8KB). Corrigido: copia só quando o `Buffer`
+      é de fato uma view parcial de um `ArrayBuffer` maior.
 
 ## P2 — Melhorias
 
@@ -174,7 +226,7 @@ Decisões deliberadas de **não** fazer:
 
 ## Testes
 
-`npm test` — **43 testes, todos passando** (runner nativo do Node, sem framework externo).
+`npm test` — **75 testes, todos passando** (runner nativo do Node, sem framework externo).
 
 | Módulo | Cobre |
 |---|---|
@@ -184,6 +236,10 @@ Decisões deliberadas de **não** fazer:
 | `streamScanner` | chave a megabytes do início, padrão partido na fronteira entre pedaços, parada antecipada |
 | `keyUtils` | dígito verificador, normalização, parsing da lista colada |
 | `classify` | assinatura de bytes de ZIP/RAR/XML |
+| `history` *(novo, rodada 4)* | round-trip, ordem mais-recente-primeiro, corte por tamanho mantendo a entrada nova, serialização incremental byte-a-byte idêntica ao `JSON.stringify` ingênuo, teto de 50 entradas, `clearHistory` |
+| `pathScope` *(novo, rodada 4)* | caminho fora de qualquer pasta conhecida rejeitado, dentro aceito (raiz e subpasta), fronteira de separador (`/notas2` não casa com `/notas`), múltiplas pastas (busca ao vivo + histórico), case-insensitive no Windows / case-sensitive fora dele, caminho relativo resolvido |
+| `extractor` *(novo, rodada 4)* | leitura normal solta e em ZIP, **zip bomb rejeitado** (tamanho declarado acima do teto, inclusive em passo intermediário da chain), entrada inexistente, `extractSingleFile` grava/evita sobrescrita/barra `..`/reduz a basename |
+| `exporter` *(novo, rodada 4)* | CSV formula injection neutralizado (`=`,`+`,`-`,`@`), valor normal sem prefixo, `=` no meio do valor não afetado, item não encontrado exporta sem lançar |
 
 ### Teste de carga — `scripts/bench.js`
 
@@ -213,10 +269,72 @@ Validações adicionais executadas nesta rodada (fora da suíte, por exigirem ar
 - Renderer carregado no Electron: sem erros de console, nenhum botão sem nome acessível,
   `:focus-visible` presente, layout conferido por captura de tela.
 
+## Rodada 4 — Auditoria multi-agente (10/09/2026)
+
+Pedido do usuário: rodar os subagents especializados adicionados em `.claude/agents/` (sessão
+anterior) contra o projeto, priorizando por Crítico/Alto/Médio/Baixo, e implementar o que tivesse
+boa relação impacto×risco.
+
+**Achado de infraestrutura, registrado por transparência**: os 14 arquivos `.md` em
+`.claude/agents/` **não são reconhecidos** como `subagent_type` pela ferramenta de agentes deste
+ambiente — só os tipos embutidos (`general-purpose`, `Explore`, `Plan` etc.) funcionam. Adaptei
+despachando 4 revisões via `general-purpose`, injetando no prompt a persona e o foco de cada
+agente (`code-reviewer`, `security-auditor`, `performance-engineer`, `architect-reviewer`), cada
+uma isolada em worktree próprio, modo somente-leitura, instruída a ler este arquivo primeiro para
+não repetir achados já corrigidos. Os `.md` em si continuam no repositório como documentação do
+critério de seleção (ver README), mas não são "plugins" ativos neste ambiente especificamente.
+
+**Implementado nesta rodada** (ver P1/P2 acima para a lista com detalhe técnico): teto de zip bomb
+também no caminho "Ver XML"/"Extrair" (antes só valia durante a busca), ordem de checagem de
+profundidade corrigida na descida em RAR (mesmo padrão que o ZIP já tinha certo), validação de
+caminho vindo do renderer via `PathScope`, CSV formula injection, 6 handlers de UI sem tratamento
+de erro, superfície de IPC morta (`validateKey`) removida, reserialização repetida do histórico, e
+cópia dupla evitável do buffer de RAR.
+
+**Documentado mas não implementado nesta rodada** (custo/risco não justificou agora, ou é decisão
+de produto):
+
+- Concorrência no sniff de arquivo "outro" tipo (PDF/TXT/sem extensão) — mesmo padrão já usado para
+  `stat` e leitura de XML, só que numa terceira categoria de arquivo. Não medido isoladamente.
+- Concorrência entre subpastas irmãs no `walkDir` (`fsWalker.ts`) — hoje a listagem de uma subpasta
+  só começa depois que a árvore inteira da anterior termina. Mesmo tipo de gargalo que motivou a
+  janela de `stat`, um nível acima.
+- `fsWalker.ts` usa `shift()` (FIFO) em vez de `Promise.race` na janela de concorrência de `stat` —
+  head-of-line blocking sob latência desigual (pasta de rede); `searchEngine.ts` já usa a técnica
+  melhor para XML solto, no mesmo arquivo de engine.
+- `ResultsTable`/`SummaryStats` recalculam o array de resultados inteiro a cada flush de 150ms (3-4
+  passagens O(n) em vez de 1) — baixo risco prático hoje (mesmo teto de ~10k já medido), mas é o
+  mesmo tipo de custo que motivou o buffer original.
+- Normalização de acento/caixa inconsistente entre casamento por nome de arquivo (normaliza) e por
+  conteúdo genérico (`content.includes(g.raw)` cru) em `pendingIdentifiers.ts`. **Decisão
+  deliberada de não corrigir sem mais cuidado**: normalizar o CONTEÚDO do XML inteiro do mesmo jeito
+  que se normaliza um nome de arquivo (removendo `<`, `>`, espaços) arrisca trocar um falso negativo
+  conhecido e estreito por um falso positivo mais amplo e difícil de perceber — a mesma classe de
+  erro que motivou reverter a tentativa de detecção de duplicidade. Precisa de uma normalização mais
+  cuidadosa (só caixa/acento, preservando estrutura) antes de mexer.
+- Mover a validação de "pasta raiz existe e é diretório" de `main/index.ts` para dentro de
+  `runSearch` (engine) — hoje só existe no processo Electron; se o motor for reusado por outro
+  consumidor (CLI, conforme o README já cogita), essa validação não viria de graça.
+- `exportToExcel` mantém o workbook inteiro em memória (`ExcelJS.Workbook` em vez de
+  `WorkbookWriter` em streaming) — só relevante se o volume exportado for muito além do que já foi
+  testado (~10k linhas).
+- Tipos mortos/estado impossível em `shared/types.ts`: `ChainStep.entrySize` nunca lido por ninguém,
+  `ScanError.kind: 'encoding'` nunca emitido (por desenho — `xmlEncoding.ts` nunca lança), `FoundItem.
+  matchMethod` permite o valor `'nao_encontrado'` que semanticamente não deveria ocorrer ali.
+  Cosmético, registrado para limpeza futura.
+- `fmtSize` (renderer) não formata MB — um resultado de 25MB aparece como "25600.0 KB".
+- Vulnerabilidades de `npm audit` (4: 2 moderate, 2 high) — `extract-zip`/`uuid` são transitivas
+  (electron/exceljs, risco real baixo para este app offline); a que pesa é o Electron estar 6
+  versões majors atrás (38 → 44 disponível). Upgrade de Electron é decisão de escopo/risco alto
+  (mudança de API entre majors, precisa de retestar a app inteira) — não é algo para decidir
+  sozinho numa correção pontual. Recomendado como iniciativa própria, não implementado aqui.
+
 ## Débitos Técnicos
 
 - `searchEngine.ts` continua sendo o arquivo mais denso do projeto (~660 linhas). A extração do
-  matching aliviou a parte crítica; a orquestração de descida em ZIP/RAR ainda poderia sair.
+  matching aliviou a parte crítica; a orquestração de descida em ZIP/RAR ainda poderia sair — mas a
+  revisão de arquitetura da rodada 4 concluiu que não vale a pena SEM um segundo motivo de reuso
+  concreto (ex.: o modo de auditoria de duplicidade, se algum dia for aprovado).
 - Tabela de resultados sem virtualização (aceitável até ~10k linhas, medido).
 - RAR ainda é lido inteiro em memória — limitação da biblioteca WASM, não do nosso código.
 - Metadados por nota não disponíveis no modo de varredura de arquivo grande.
@@ -289,3 +407,11 @@ um valor maior nesta pasta; ficou como próximo passo caso o usuário quiser inv
    do programa em si — é o custo real de acessar 415 mil arquivos individuais por rede.
 5. Testar `XML_READ_CONCURRENCY` mais alto especificamente contra XMLs soltos em rede (não dentro de
    compactado) — não foi possível isolar esse caminho nesta pasta sem outra rodada longa.
+6. Concorrência no sniff de arquivo "outro" tipo e entre subpastas irmãs no `walkDir` (rodada 4) —
+   mesmo padrão já provado em `stat`/leitura de XML, aplicado às duas últimas partes sequenciais do
+   percurso principal.
+7. Normalização acento/caixa no casamento genérico por conteúdo (`pendingIdentifiers.ts`) — precisa
+   de desenho cuidadoso (só caixa/acento, sem remover estrutura) para não trocar um falso negativo
+   estreito por um falso positivo mais amplo. Ver nota completa na rodada 4.
+8. Avaliar upgrade do Electron (38 → 44 disponível) — decisão de escopo/risco que exige retestar a
+   app inteira, não algo para decidir numa correção pontual.

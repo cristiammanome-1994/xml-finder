@@ -98,11 +98,25 @@ export async function exportToExcel(items: ResultItem[], destPath: string): Prom
   await workbook.xlsx.writeFile(destPath)
 }
 
+/**
+ * Campos como nome do XML, CNPJ extraído ou caminho interno vêm do conteúdo/nome de arquivos da
+ * pasta pesquisada — não são digitados pelo usuário, mas também não são confiáveis (um XML
+ * malicioso na pasta pode ter um nome ou CNPJ propositalmente formatado). Se um desses valores
+ * começar com um caractere que o Excel/LibreOffice interpretam como início de fórmula ao importar
+ * CSV (=, +, -, @, tab, CR), prefixa com apóstrofo para forçar leitura como texto — mitiga CSV/
+ * Excel Formula Injection. O apóstrofo em si é removido pela planilha ao exibir, não aparece pro
+ * usuário.
+ */
+function neutralizeFormula(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
+}
+
 function csvEscape(value: string): string {
-  if (/[",\n;]/.test(value)) {
-    return `"${value.replace(/"/g, '""')}"`
+  const safe = neutralizeFormula(value)
+  if (/[",\n;]/.test(safe)) {
+    return `"${safe.replace(/"/g, '""')}"`
   }
-  return value
+  return safe
 }
 
 export async function exportToCsv(items: ResultItem[], destPath: string): Promise<void> {
