@@ -38,6 +38,9 @@ const ZIP_ENTRY_SNIFF_CAP = 10 * 1024 * 1024
  * não afogar o disco nem estourar o limite de descritores de arquivo do processo.
  */
 const XML_READ_CONCURRENCY = 12
+/** Mesmo raciocínio de XML_READ_CONCURRENCY, aplicado à classificação por assinatura de bytes
+ * (`sniffFileKind`) de arquivos com extensão não reconhecida — ex.: PDF de DANFe ao lado do XML. */
+const SNIFF_CONCURRENCY = 12
 
 /**
  * Um arquivo XML a ser avaliado, junto com as formas de ler seu conteúdo. As leituras são
@@ -617,9 +620,72 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
     inFlightXml.add(task)
   }
 
-  /** Espera tudo que está em voo — antes de abrir um arquivo compactado e ao fim da varredura. */
+  /** Espera tudo que está em voo — antes de abrir um arquivo compactado (de extensão conhecida) e
+   * ao fim da varredura. */
   async function drainXml(): Promise<void> {
     if (inFlightXml.size > 0) await Promise.all([...inFlightXml])
+  }
+
+  async function handleDiskZip(absPath: string): Promise<void> {
+    stats.zipCount++
+    try {
+      const zip = await openZipFromFile(absPath)
+      try {
+        await processZipEntries(zip, absPath, [], maxDepth - 1)
+      } finally {
+        zip.close()
+      }
+    } catch (err) {
+      reportError(absPath, 'zip_corrompido', (err as Error).message)
+    }
+  }
+
+  async function handleDiskRar(absPath: string): Promise<void> {
+    stats.rarCount++
+    if (/\.(part(?!0*1\.rar$)\d+\.rar|r\d{2,3})$/i.test(absPath)) {
+      limitationNotes.add(
+        `Arquivos RAR multivolume não são suportados — "${path.basename(absPath)}" pode estar incompleto.`
+      )
+    }
+    try {
+      const buffer = await fs.promises.readFile(absPath)
+      const rar = await openRarFromBuffer(buffer)
+      await processRarEntries(rar, absPath, [], maxDepth - 1)
+    } catch (err) {
+      reportError(absPath, 'rar_corrompido', (err as Error).message)
+    }
+  }
+
+  /**
+   * Arquivos sem extensão reconhecida (`.pdf` de DANFe, `.txt`, sem extensão) também são lidos com
+   * várias verificações em voo, pelo mesmo motivo do XML: identificar o tipo real por assinatura de
+   * bytes (`sniffFileKind`) custa I/O, não CPU. Numa base fiscal real é comum um PDF ao lado de cada
+   * XML — sem isso, cada um pagaria sozinho a latência de abrir+ler+fechar antes do próximo arquivo
+   * do percurso principal sequer começar a ser classificado.
+   *
+   * Concessão deliberada: ao contrário do XML, uma tarefa de sniff que descobre um ZIP/RAR disfarçado
+   * (sem extensão, ou renomeado) o processa por conta própria, sem esvaziar `inFlightXml`/outras
+   * tarefas de sniff antes. Arquivo compactado sem extensão reconhecível é raro; o caso comum
+   * (arquivo "outro" de verdade, como um PDF) nunca chega a abrir nada pesado. O `SNIFF_CONCURRENCY`
+   * já limita quantos desses casos raros poderiam se sobrepor ao mesmo tempo.
+   */
+  const inFlightSniff = new Set<Promise<void>>()
+
+  function scheduleSniff(absPath: string, size: number, mtimeMs: number): void {
+    const task = (async () => {
+      const kind = await sniffFileKind(absPath, size)
+      if (kind === 'xml') scheduleXml(absPath, size, mtimeMs)
+      else if (kind === 'zip') await handleDiskZip(absPath)
+      else if (kind === 'rar') await handleDiskRar(absPath)
+      // 'other' — nada a fazer, já contabilizado em filesScanned.
+    })()
+      .catch((err) => reportError(absPath, 'desconhecido', (err as Error).message))
+      .finally(() => inFlightSniff.delete(task))
+    inFlightSniff.add(task)
+  }
+
+  async function drainSniff(): Promise<void> {
+    if (inFlightSniff.size > 0) await Promise.all([...inFlightSniff])
   }
 
   try {
@@ -631,8 +697,7 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
       if (hooks.isCancelled() || allResolved()) break
 
       stats.filesScanned++
-      let kind = classifyByExtension(file.absPath)
-      if (!kind) kind = await sniffFileKind(file.absPath, file.size)
+      const kind = classifyByExtension(file.absPath)
 
       if (kind === 'xml') {
         scheduleXml(file.absPath, file.size, file.mtimeMs)
@@ -641,44 +706,31 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
         continue
       }
 
-      // Arquivos compactados: esvazia a fila de XMLs antes, para não somar o pico de memória de
-      // um pacote ao das leituras soltas em voo.
-      await drainXml()
-
-      if (kind === 'zip') {
-        stats.zipCount++
-        try {
-          const zip = await openZipFromFile(file.absPath)
-          try {
-            await processZipEntries(zip, file.absPath, [], maxDepth - 1)
-          } finally {
-            zip.close()
-          }
-        } catch (err) {
-          reportError(file.absPath, 'zip_corrompido', (err as Error).message)
-        }
-      } else if (kind === 'rar') {
-        stats.rarCount++
-        if (/\.(part(?!0*1\.rar$)\d+\.rar|r\d{2,3})$/i.test(file.absPath)) {
-          limitationNotes.add(
-            `Arquivos RAR multivolume não são suportados — "${path.basename(file.absPath)}" pode estar incompleto.`
-          )
-        }
-        try {
-          const buffer = await fs.promises.readFile(file.absPath)
-          const rar = await openRarFromBuffer(buffer)
-          await processRarEntries(rar, file.absPath, [], maxDepth - 1)
-        } catch (err) {
-          reportError(file.absPath, 'rar_corrompido', (err as Error).message)
-        }
+      if (kind === null) {
+        // Extensão não reconhecida: precisa de sniff para saber o que é. Delegado ao pool de
+        // concorrência acima — a classificação em si (e o eventual processamento, se descobrir
+        // que é XML/ZIP/RAR disfarçado) roda em segundo plano.
+        scheduleSniff(file.absPath, file.size, file.mtimeMs)
+        if (inFlightSniff.size >= SNIFF_CONCURRENCY) await Promise.race([...inFlightSniff])
+        emitProgress()
+        continue
       }
+
+      // ZIP/RAR de extensão conhecida: esvazia XML e sniff em voo antes, para não somar o pico de
+      // memória de um pacote ao das leituras/classificações soltas em andamento.
+      await drainXml()
+      await drainSniff()
+
+      if (kind === 'zip') await handleDiskZip(file.absPath)
+      else if (kind === 'rar') await handleDiskRar(file.absPath)
 
       emitProgress()
     }
   } finally {
-    // Mesmo em cancelamento ou erro, espera as leituras em voo: elas ainda podem emitir
-    // resultados, e o 'done' não pode ser reportado antes delas.
+    // Mesmo em cancelamento ou erro, espera tudo em voo: ainda pode emitir resultados, e o 'done'
+    // não pode ser reportado antes disso.
     await drainXml()
+    await drainSniff()
     stats.phase = hooks.isCancelled() ? 'cancelado' : 'concluido'
     stats.elapsedMs = Date.now() - startedAt
     searchIndex?.close()

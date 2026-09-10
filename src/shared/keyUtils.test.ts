@@ -4,6 +4,7 @@ import {
   parseIdentifierList,
   onlyDigits,
   normalizeForNameMatch,
+  normalizeForContentMatch,
   isLikelyAccessKey,
   validateAccessKey
 } from './keyUtils.ts'
@@ -24,6 +25,14 @@ test('onlyDigits remove tudo que não é dígito', () => {
 
 test('normalizeForNameMatch remove acento, pontuação e caixa', () => {
   assert.equal(normalizeForNameMatch('Nota-Fiscal_2024 (São Paulo).xml'), 'NOTAFISCAL2024SAOPAULOXML')
+})
+
+test('normalizeForContentMatch remove acento e caixa, mas preserva pontuação e espaços', () => {
+  assert.equal(normalizeForContentMatch('Construção Ltda, São Paulo'), 'CONSTRUCAO LTDA, SAO PAULO')
+})
+
+test('normalizeForContentMatch não junta texto de elementos XML vizinhos (preserva estrutura)', () => {
+  assert.equal(normalizeForContentMatch('<a>abc</a><b>def</b>'), '<A>ABC</A><B>DEF</B>')
 })
 
 test('isLikelyAccessKey exige exatamente 44 dígitos', () => {

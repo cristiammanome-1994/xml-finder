@@ -34,6 +34,18 @@ export function normalizeForNameMatch(s: string): string {
     .replace(/[^A-Z0-9]+/g, '')
 }
 
+/**
+ * Remove só acentos e diferença de caixa, SEM remover pontuação/espaços — ao contrário de
+ * `normalizeForNameMatch`. Usado para comparar um identificador genérico contra o CONTEÚDO de um
+ * XML (não o nome de um arquivo): remover `<`, `>` e espaços de um blob de XML inteiro juntaria
+ * texto de tags/elementos vizinhos que nunca estiveram um ao lado do outro no documento original,
+ * trocando um falso negativo (não casar por causa de acento/caixa) por um falso positivo mais
+ * grave (casar por coincidência de justaposição). Preservar a estrutura evita isso.
+ */
+export function normalizeForContentMatch(s: string): string {
+  return s.normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]', 'g'), '').toUpperCase()
+}
+
 /** Um identificador é considerado "chave de acesso" quando, ao remover não-dígitos, sobram 44 dígitos. */
 export function isLikelyAccessKey(identifier: string): boolean {
   return onlyDigits(identifier).length === 44

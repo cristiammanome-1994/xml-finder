@@ -1,6 +1,6 @@
 // Caminho relativo (em vez do alias @shared) para que este módulo — e seus testes — possam ser
 // carregados direto pelo runner do Node, que não conhece os aliases resolvidos pelo Vite.
-import { onlyDigits, normalizeForNameMatch } from '../../shared/keyUtils.ts'
+import { onlyDigits, normalizeForNameMatch, normalizeForContentMatch } from '../../shared/keyUtils.ts'
 
 /** Identificadores genéricos (não-chave) mais curtos que isso são propensos demais a falso positivo por substring. */
 const MIN_GENERIC_MATCH_LENGTH = 6
@@ -13,7 +13,10 @@ export interface IdentifierMatch {
 
 interface GenericPending {
   raw: string
+  /** Normalização "agressiva" (remove tudo que não é letra/dígito) — usada só para nome de arquivo. */
   normalized: string
+  /** Normalização "conservadora" (só caixa/acento, preserva estrutura) — usada para conteúdo. */
+  normalizedForContent: string
 }
 
 /**
@@ -47,7 +50,11 @@ export class PendingIdentifiers {
         if (existing) existing.push(id)
         else this.digits.set(digits, [id])
       } else {
-        this.generic.push({ raw: id, normalized: normalizeForNameMatch(id) })
+        this.generic.push({
+          raw: id,
+          normalized: normalizeForNameMatch(id),
+          normalizedForContent: normalizeForContentMatch(id)
+        })
       }
     }
 
@@ -130,11 +137,16 @@ export class PendingIdentifiers {
    * Casa um identificador genérico pelo conteúdo do arquivo. Como em takeByFileName, é fuzzy e
    * consome no máximo um por chamada. `fallbackKey` é a chave associada ao resultado quando o
    * arquivo tem uma (para exibição), já que o identificador em si não é uma chave.
+   *
+   * Normaliza caixa/acento dos dois lados antes de comparar (sem remover pontuação/espaço, ao
+   * contrário do casamento por nome de arquivo) — um identificador colado em minúsculas, ou com
+   * acentuação diferente da que aparece no XML, não pode deixar de casar só por isso.
    */
   takeGenericByContent(content: string, fallbackKey: string | null): IdentifierMatch[] {
     if (this.generic.length === 0) return []
+    const normalizedContent = normalizeForContentMatch(content)
     const hit = this.generic.find(
-      (g) => g.raw.length >= MIN_GENERIC_MATCH_LENGTH && content.includes(g.raw)
+      (g) => g.raw.length >= MIN_GENERIC_MATCH_LENGTH && normalizedContent.includes(g.normalizedForContent)
     )
     if (!hit) return []
     this.removeGeneric(hit.raw)

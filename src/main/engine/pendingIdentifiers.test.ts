@@ -78,6 +78,27 @@ test('takeGenericByContent associa a chave do arquivo ao identificador por nome'
   assert.equal(matches[0].chave, KEY1, 'exibe a chave do XML onde o identificador foi achado')
 })
 
+test('takeGenericByContent casa mesmo com caixa diferente da que está no XML', () => {
+  const p = new PendingIdentifiers(['pedido-4455'])
+  const matches = p.takeGenericByContent('<xml><obs>PEDIDO-4455</obs></xml>', null)
+  assert.equal(matches.length, 1, 'minúsculo no identificador deveria casar com maiúsculo no conteúdo')
+})
+
+test('takeGenericByContent casa mesmo com acentuação diferente da que está no XML', () => {
+  const p = new PendingIdentifiers(['CONSTRUCAO LTDA'])
+  const matches = p.takeGenericByContent('<emit><xNome>CONSTRUÇÃO LTDA</xNome></emit>', null)
+  assert.equal(matches.length, 1, 'sem acento no identificador deveria casar com acentuado no conteúdo')
+})
+
+test('takeGenericByContent NÃO casa por justaposição de tags vizinhas (preserva estrutura do XML)', () => {
+  // "ABCDEF" não existe de verdade no documento — só aparece assim se a normalização remover
+  // as tags e juntar o fim de um elemento com o começo do próximo. A normalização de conteúdo
+  // é deliberadamente mais conservadora que a de nome de arquivo por causa exatamente disso.
+  const p = new PendingIdentifiers(['ABCDEF'])
+  const matches = p.takeGenericByContent('<a>ABC</a><b>DEF</b>', null)
+  assert.equal(matches.length, 0, 'ABC e DEF em elementos vizinhos não devem casar como se fossem ABCDEF')
+})
+
 test('takeKey consome uma chave específica (caminho do índice/cache)', () => {
   const p = new PendingIdentifiers([KEY1, KEY2])
   assert.deepEqual(p.takeKey(KEY1), [KEY1])

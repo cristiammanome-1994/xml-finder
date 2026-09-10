@@ -1,6 +1,6 @@
 # Auditoria do Projeto — XML Finder
 
-Registro da auditoria técnica e das correções implementadas. Atualizado em 10/09/2026 (v1.8.0).
+Registro da auditoria técnica e das correções implementadas. Atualizado em 10/09/2026 (v1.9.0).
 
 ## Escopo real do projeto
 
@@ -226,7 +226,7 @@ Decisões deliberadas de **não** fazer:
 
 ## Testes
 
-`npm test` — **75 testes, todos passando** (runner nativo do Node, sem framework externo).
+`npm test` — **80 testes, todos passando** (runner nativo do Node, sem framework externo).
 
 | Módulo | Cobre |
 |---|---|
@@ -291,27 +291,42 @@ caminho vindo do renderer via `PathScope`, CSV formula injection, 6 handlers de 
 de erro, superfície de IPC morta (`validateKey`) removida, reserialização repetida do histórico, e
 cópia dupla evitável do buffer de RAR.
 
-**Documentado mas não implementado nesta rodada** (custo/risco não justificou agora, ou é decisão
-de produto):
+**Implementado em seguida, mesmo dia (10/09/2026, segunda leva)**:
 
-- Concorrência no sniff de arquivo "outro" tipo (PDF/TXT/sem extensão) — mesmo padrão já usado para
-  `stat` e leitura de XML, só que numa terceira categoria de arquivo. Não medido isoladamente.
+- [x] **Concorrência no sniff de arquivo "outro" tipo.** `sniffFileKind` (PDF de DANFe, TXT, sem
+      extensão) agora roda no mesmo tipo de pool com janela de concorrência (`SNIFF_CONCURRENCY = 12`)
+      já usado para XML. Zip/rar detectados por sniff (raro — extensão errada ou ausente) são
+      processados dentro da própria tarefa de sniff, sem esperar outras tarefas de sniff/XML em
+      voo primeiro — concessão deliberada e documentada no código, aceitável porque esse caso é raro
+      e bounded pela própria janela de concorrência. Arquivos ZIP/RAR de extensão CONHECIDA continuam
+      esvaziando XML e sniff em voo antes de abrir, sem mudança de comportamento aí. Handlers de
+      ZIP/RAR extraídos para funções reutilizáveis (`handleDiskZip`/`handleDiskRar`) para servir os
+      dois caminhos (extensão conhecida e sniff) sem duplicar lógica. Testado com 90+ arquivos
+      "outro" simulados (PDF fake) misturados a XML/ZIP reais, incluindo um ZIP e um XML disfarçados
+      sem extensão reconhecível — todos corretamente classificados e processados, sem erro.
+      **Não medido com benchmark dedicado** (segue o mesmo padrão já comprovado para XML/`stat`, não
+      remedido isoladamente — evita reafirmar "uma rodada única não é evidência" sem repetição real).
+- [x] **Normalização de acento/caixa no casamento genérico por conteúdo.** Adicionada
+      `normalizeForContentMatch` (`keyUtils.ts`) — normaliza SÓ caixa/acento, preservando pontuação e
+      espaços (ao contrário de `normalizeForNameMatch`, que remove tudo). Aplicada nos dois pontos de
+      `PendingIdentifiers.takeGenericByContent` (busca normal e streaming). Testado explicitamente
+      que a correção NÃO introduz o falso positivo que motivou adiá-la: `<a>ABC</a><b>DEF</b>`
+      continua sem casar com o identificador `ABCDEF`, porque a estrutura do XML não é removida.
+
+**Ainda documentado, não implementado** (custo/risco não justificou nesta rodada, ou é decisão de
+produto):
+
 - Concorrência entre subpastas irmãs no `walkDir` (`fsWalker.ts`) — hoje a listagem de uma subpasta
   só começa depois que a árvore inteira da anterior termina. Mesmo tipo de gargalo que motivou a
-  janela de `stat`, um nível acima.
+  janela de `stat`, um nível acima, mas mais arriscado de implementar (`walkDir` é um gerador
+  recursivo; paralelizar irmãos exige mesclar múltiplos geradores assíncronos, não só uma janela de
+  promessas como no sniff/XML). Adiado para não arriscar o percurso principal sem tempo dedicado.
 - `fsWalker.ts` usa `shift()` (FIFO) em vez de `Promise.race` na janela de concorrência de `stat` —
   head-of-line blocking sob latência desigual (pasta de rede); `searchEngine.ts` já usa a técnica
   melhor para XML solto, no mesmo arquivo de engine.
 - `ResultsTable`/`SummaryStats` recalculam o array de resultados inteiro a cada flush de 150ms (3-4
   passagens O(n) em vez de 1) — baixo risco prático hoje (mesmo teto de ~10k já medido), mas é o
   mesmo tipo de custo que motivou o buffer original.
-- Normalização de acento/caixa inconsistente entre casamento por nome de arquivo (normaliza) e por
-  conteúdo genérico (`content.includes(g.raw)` cru) em `pendingIdentifiers.ts`. **Decisão
-  deliberada de não corrigir sem mais cuidado**: normalizar o CONTEÚDO do XML inteiro do mesmo jeito
-  que se normaliza um nome de arquivo (removendo `<`, `>`, espaços) arrisca trocar um falso negativo
-  conhecido e estreito por um falso positivo mais amplo e difícil de perceber — a mesma classe de
-  erro que motivou reverter a tentativa de detecção de duplicidade. Precisa de uma normalização mais
-  cuidadosa (só caixa/acento, preservando estrutura) antes de mexer.
 - Mover a validação de "pasta raiz existe e é diretório" de `main/index.ts` para dentro de
   `runSearch` (engine) — hoje só existe no processo Electron; se o motor for reusado por outro
   consumidor (CLI, conforme o README já cogita), essa validação não viria de graça.
@@ -407,11 +422,10 @@ um valor maior nesta pasta; ficou como próximo passo caso o usuário quiser inv
    do programa em si — é o custo real de acessar 415 mil arquivos individuais por rede.
 5. Testar `XML_READ_CONCURRENCY` mais alto especificamente contra XMLs soltos em rede (não dentro de
    compactado) — não foi possível isolar esse caminho nesta pasta sem outra rodada longa.
-6. Concorrência no sniff de arquivo "outro" tipo e entre subpastas irmãs no `walkDir` (rodada 4) —
-   mesmo padrão já provado em `stat`/leitura de XML, aplicado às duas últimas partes sequenciais do
-   percurso principal.
-7. Normalização acento/caixa no casamento genérico por conteúdo (`pendingIdentifiers.ts`) — precisa
-   de desenho cuidadoso (só caixa/acento, sem remover estrutura) para não trocar um falso negativo
-   estreito por um falso positivo mais amplo. Ver nota completa na rodada 4.
+6. ~~Concorrência no sniff de arquivo "outro" tipo~~ — feito (10/09/2026, segunda leva da rodada 4).
+   Falta ainda a concorrência entre subpastas irmãs no `walkDir` (mais arriscada — gerador recursivo,
+   exigiria mesclar geradores assíncronos em vez de só uma janela de promessas).
+7. ~~Normalização acento/caixa no casamento genérico por conteúdo~~ — feito (10/09/2026, segunda leva
+   da rodada 4), com o desenho conservador (só caixa/acento) para não introduzir o falso positivo.
 8. Avaliar upgrade do Electron (38 → 44 disponível) — decisão de escopo/risco que exige retestar a
    app inteira, não algo para decidir numa correção pontual.

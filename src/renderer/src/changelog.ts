@@ -15,6 +15,14 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.9.0',
+    date: '2026-09-10',
+    title: 'Pesquisa mais rápida em pastas com PDFs e outros arquivos misturados',
+    category: 'melhoria',
+    description:
+      'É comum ter um PDF do DANFe ao lado de cada XML na mesma pasta. Esses arquivos (e qualquer outro que não seja .xml, .zip ou .rar) agora são identificados vários de uma vez em vez de um por um, seguindo a mesma melhoria de velocidade que já tinha sido feita para os XMLs. Também foi corrigido um caso em que colar um identificador em minúsculas, ou sem os acentos exatos que aparecem no XML, podia fazer a busca não encontrar uma nota que na verdade estava lá.'
+  },
+  {
     version: '1.8.0',
     date: '2026-09-10',
     title: 'Reforço de segurança e correções de estabilidade',
