@@ -15,6 +15,14 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.10.0',
+    date: '2026-09-10',
+    title: 'Atualização do Electron por baixo dos panos',
+    category: 'melhoria',
+    description:
+      'O Electron (a base do aplicativo) foi atualizado de uma versão bem antiga para a mais recente disponível. Isso corrige vulnerabilidades de segurança conhecidas da versão antiga e mantém o app alinhado com as versões atuais do Chromium e do Node.js. Não muda nada na forma de usar o programa — testado de ponta a ponta (busca, índice de pesquisas, exportação, interface) antes de publicar, incluindo o próprio instalador portable gerado com a nova versão.'
+  },
+  {
     version: '1.9.0',
     date: '2026-09-10',
     title: 'Pesquisa mais rápida em pastas com PDFs e outros arquivos misturados',

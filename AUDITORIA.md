@@ -1,6 +1,6 @@
 # Auditoria do Projeto — XML Finder
 
-Registro da auditoria técnica e das correções implementadas. Atualizado em 10/09/2026 (v1.9.0).
+Registro da auditoria técnica e das correções implementadas. Atualizado em 10/09/2026 (v1.10.0).
 
 ## Escopo real do projeto
 
@@ -427,5 +427,49 @@ um valor maior nesta pasta; ficou como próximo passo caso o usuário quiser inv
    exigiria mesclar geradores assíncronos em vez de só uma janela de promessas).
 7. ~~Normalização acento/caixa no casamento genérico por conteúdo~~ — feito (10/09/2026, segunda leva
    da rodada 4), com o desenho conservador (só caixa/acento) para não introduzir o falso positivo.
-8. Avaliar upgrade do Electron (38 → 44 disponível) — decisão de escopo/risco que exige retestar a
-   app inteira, não algo para decidir numa correção pontual.
+8. ~~Avaliar upgrade do Electron (38 → 44)~~ — feito, ver seção "Upgrade do Electron" abaixo.
+
+## Upgrade do Electron 38 → 44 (10/09/2026, terceira leva)
+
+Autorizado explicitamente pelo usuário (item que eu mesmo tinha recomendado NÃO decidir sozinho).
+
+**Pesquisa antes de agir** (via `WebFetch`/`WebSearch` nas notas oficiais de breaking changes do
+Electron, versões 39-44): o único item realmente relevante para este projeto era a remoção do
+módulo `clipboard` do processo renderer na v44 — confirmei por `grep` que o app já usa
+exclusivamente `navigator.clipboard` (API web padrão), nunca o módulo do Electron, então não
+afetava. Os demais itens (remoção de suporte 32-bit, mudanças de diálogo no Linux, notificações do
+macOS, PDF em WebContents separado) não se aplicam: este app empacota só Windows x64, sem diálogo
+customizado, sem PDF embutido. Confirmado também que `node-unrar-js` é WASM (não addon nativo via
+N-API) — não depende de rebuild por versão do Electron, ao contrário do risco típico desse tipo de
+upgrade. `electron-builder` e `electron-vite` já instalados não fixam teto de versão do Electron.
+
+**O que mudou**: `electron` `^38.4.0` → `^44.3.0` (Node 22.22 → 24.20, Chromium bem mais novo).
+`npm audit` caiu de 4 vulnerabilidades (2 moderate, 2 high — as duas "high" eram do próprio
+Electron antigo e de `extract-zip`, dependência transitiva do Electron) para 2 (moderate, ambas
+`uuid` via `exceljs`, já existiam antes e são de baixo risco real para este app offline).
+
+**Validado antes de aceitar**:
+- `node:sqlite` (`DatabaseSync`/`StatementSync`) testado dentro do processo Electron real (não só
+  Node do sistema) — round-trip de escrita/leitura funcionando no Node 24.20 empacotado.
+- Regressão completa do worker de busca rodada DENTRO do processo main do Electron (não via Node
+  do sistema, que teria Node diferente do bundled) — busca, índice/cache, segunda pesquisa via
+  índice, tudo funcionando de ponta a ponta.
+- Renderer carregado: app monta, `window.api` exposto via `contextBridge` corretamente,
+  `navigator.clipboard` funcional, zero erros de console, zero botão sem nome acessível, captura de
+  tela conferida visualmente (idêntica à versão anterior).
+- **Empacotamento real** (`electron-builder --win portable`) com o novo Electron — baixou a
+  distribuição 44.3.0, assinou os executáveis, gerou o portable. Único ponto de atenção
+  operacional (não do código): o download da distribuição do Electron 44 e a compressão NSIS/7zip
+  levaram bem mais tempo que o de costume — cheguei a interromper por engano achando que tinha
+  travado, ao confundir um processo Node completamente não relacionado (servidor Next.js de outro
+  projeto aberto na mesma máquina) com o do `electron-builder`. Identifiquei o processo certo pela
+  linha de comando, matei o processo órfão remanescente e refiz o empacotamento limpo — terminou
+  normalmente. Registrado aqui para não repetir o mesmo engano numa próxima vez: **ao investigar um
+  processo "travado", sempre confirmar a linha de comando (`Get-CimInstance Win32_Process`) antes
+  de agir, não só CPU/memória** — nesta máquina há vários outros projetos com processos Node
+  ativos ao mesmo tempo.
+- **Executável final testado de verdade**: o `.exe` portable gerado foi executado como processo
+  real (não só carregado em modo dev) e confirmado rodando establemente antes de ser encerrado.
+
+**Não testado**: o instalador NSIS (só o portable foi gerado e testado nesta rodada, seguindo o
+padrão já estabelecido nas rodadas anteriores de só empacotar o portable via `--win portable`).
