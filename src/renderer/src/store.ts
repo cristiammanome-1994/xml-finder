@@ -7,7 +7,10 @@ import type {
   ScanError,
   SearchStats
 } from '@shared/types'
-import { LATEST_VERSION } from './changelog'
+// Extensão .ts explícita porque este módulo também é carregado diretamente pelo runner de testes
+// do Node (store.test.ts), cujo resolvedor ESM exige o especificador exato do arquivo — o bundler
+// de produção (Vite) aceita o mesmo especificador (mesmo raciocínio documentado em extractor.ts).
+import { LATEST_VERSION } from './changelog.ts'
 
 export type ResultFilter = 'todos' | 'encontrados' | 'nao_encontrados' | 'erros'
 export type Theme = 'light' | 'dark'

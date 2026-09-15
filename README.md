@@ -214,6 +214,9 @@ Kubernetes etc.):
 | Core da stack | `electron-pro`, `typescript-pro`, `react-specialist`, `node-specialist` |
 | Qualidade/segurança | `performance-engineer`, `security-auditor`, `test-automator`, `code-reviewer`, `architect-reviewer`, `accessibility-tester` |
 | Manutenção | `refactoring-specialist`, `documentation-engineer`, `build-engineer`, `dependency-manager` |
+| Processo/disciplina | `git-push-guardian`, `release-keeper`, `diff-reviewer`, `security-surface-guardian` |
+
+Os quatro últimos são adaptados dos agentes de processo de outro projeto deste usuário — não escolhem tecnologia, aplicam disciplina de workflow já validada aqui: conferir o remoto antes de publicar, manter `changelog.ts` em dia ao fechar uma rodada, revisar o diff atrás do defeito que passa em tudo e mesmo assim está errado, e auditar as três superfícies de segurança que este app já endureceu (escopo de caminho por IPC, teto de zip bomb, escaping de CSV).
 
 O histórico completo de decisões técnicas, achados de auditoria e testes de carga (incluindo medições
 em pasta de rede de produção) está documentado em [AUDITORIA.md](AUDITORIA.md).

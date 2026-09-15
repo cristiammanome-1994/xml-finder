@@ -14,16 +14,20 @@ import type {
   SearchStats,
   StorageType
 } from '@shared/types'
-import { walkFolder } from './fsWalker'
-import { classifyByExtension, sniffFileKind, classifyBuffer, type FileKind } from './classify'
-import { openZipFromFile, openZipFromBuffer, type OpenZip, type ZipEntryInfo } from './zipReader'
-import { openRarFromBuffer, type OpenRarFile, type RarEntryInfo } from './rarReader'
-import { extractXmlInfo, type XmlNoteMetadata } from './xmlMatcher'
-import { openSearchIndex, type SearchIndex } from './searchIndex'
-import { PendingIdentifiers, type IdentifierMatch } from './pendingIdentifiers'
-import { decodeXmlBuffer } from './xmlEncoding'
-import { scanStreamForXml } from './streamScanner'
-import { MAX_NESTED_ARCHIVE_BYTES, formatMegabytes } from './archiveLimits'
+// Extensão .ts explícita (em vez do padrão dos outros arquivos de engine) porque este módulo
+// também é carregado diretamente pelo runner de testes do Node, cujo resolvedor ESM exige o
+// especificador exato do arquivo — o bundler de produção (Vite) aceita o mesmo especificador
+// (mesmo raciocínio documentado em extractor.ts).
+import { walkFolder } from './fsWalker.ts'
+import { classifyByExtension, sniffFileKind, classifyBuffer, type FileKind } from './classify.ts'
+import { openZipFromFile, openZipFromBuffer, type OpenZip, type ZipEntryInfo } from './zipReader.ts'
+import { openRarFromBuffer, type OpenRarFile, type RarEntryInfo } from './rarReader.ts'
+import { extractXmlInfo, type XmlNoteMetadata } from './xmlMatcher.ts'
+import { openSearchIndex, type SearchIndex } from './searchIndex.ts'
+import { PendingIdentifiers, type IdentifierMatch } from './pendingIdentifiers.ts'
+import { decodeXmlBuffer } from './xmlEncoding.ts'
+import { scanStreamForXml } from './streamScanner.ts'
+import { MAX_NESTED_ARCHIVE_BYTES, formatMegabytes } from './archiveLimits.ts'
 
 const PARTIAL_READ_BYTES = 8 * 1024
 // Teto para ler um XML inteiro em memória atrás da chave. Precisa acomodar arquivos de lote
@@ -78,6 +82,21 @@ function depthToNumber(d: ArchiveDepthOption): number {
   return d === 'unlimited' ? Number.MAX_SAFE_INTEGER : d
 }
 
+export function buildLocation(diskPath: string, chain: ChainStep[]): FileLocation {
+  return { diskPath, chain }
+}
+
+export function storageTypeFor(chain: ChainStep[]): StorageType {
+  if (chain.length === 0) return 'Pasta'
+  return chain[0].containerType === 'zip' ? 'ZIP' : 'RAR'
+}
+
+export function resolveEntryKind(entryName: string): FileKind {
+  const byExt = classifyByExtension(entryName)
+  if (byExt) return byExt
+  return 'other'
+}
+
 export async function runSearch(options: SearchOptions, hooks: SearchHooks): Promise<SearchResult> {
   const startedAt = Date.now()
   const maxDepth = depthToNumber(options.maxDepth)
@@ -113,15 +132,6 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
   const reportError = (diskPath: string, kind: ScanError['kind'], message: string): void => {
     stats.errorCount++
     hooks.onError({ id: randomUUID(), path: diskPath, kind, message })
-  }
-
-  function buildLocation(diskPath: string, chain: ChainStep[]): FileLocation {
-    return { diskPath, chain }
-  }
-
-  function storageTypeFor(chain: ChainStep[]): StorageType {
-    if (chain.length === 0) return 'Pasta'
-    return chain[0].containerType === 'zip' ? 'ZIP' : 'RAR'
   }
 
   // Cache local de "chave -> onde foi encontrada da última vez" nesta pasta raiz (ver searchIndex.ts).
@@ -548,12 +558,6 @@ export async function runSearch(options: SearchOptions, hooks: SearchHooks): Pro
       }
       emitProgress()
     }
-  }
-
-  function resolveEntryKind(entryName: string): FileKind {
-    const byExt = classifyByExtension(entryName)
-    if (byExt) return byExt
-    return 'other'
   }
 
   // --- Fase de cache: resolve o que já foi visto numa busca anterior nesta mesma pasta, antes

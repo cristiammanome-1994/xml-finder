@@ -61,78 +61,93 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
+async function handleSelectFolder(): Promise<string | null> {
+  const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
+}
+
+async function handleSelectDestinationFolder(): Promise<string | null> {
+  const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
+}
+
+async function handleStartSearchIpc(_e: unknown, options: SearchOptions): Promise<void> {
+  await startSearch(options)
+}
+
+function handleCancelSearch(): void {
+  activeWorker?.postMessage({ type: 'cancel' })
+}
+
+function handleOpenContainingFolder(_e: unknown, targetPath: string): void {
+  pathScope.assertKnown(targetPath)
+  shell.showItemInFolder(targetPath)
+}
+
+async function handleReadXmlContent(_e: unknown, location: FileLocation): Promise<string> {
+  pathScope.assertKnown(location.diskPath)
+  const buf = await readLocationContent(location)
+  // Respeita o encoding declarado no XML: muitos emissores ainda geram ISO-8859-1, e decodificar
+  // como UTF-8 corromperia todo texto acentuado (razão social, endereço) na visualização.
+  return decodeXmlBuffer(buf)
+}
+
+async function handleExtractSingle(_e: unknown, req: ExtractRequest): Promise<string> {
+  pathScope.assertKnown(req.location.diskPath)
+  return extractSingleFile(req.location, req.fileName, req.destinationFolder)
+}
+
+async function handleExportResults(_e: unknown, items: ResultItem[], format: 'xlsx' | 'csv'): Promise<string | null> {
+  const defaultName = format === 'xlsx' ? 'resultados-xml-finder.xlsx' : 'resultados-xml-finder.csv'
+  const result = await dialog.showSaveDialog({
+    defaultPath: defaultName,
+    filters: format === 'xlsx' ? [{ name: 'Excel', extensions: ['xlsx'] }] : [{ name: 'CSV', extensions: ['csv'] }]
+  })
+  if (result.canceled || !result.filePath) return null
+  const { exportToCsv, exportToExcel } = await import('./engine/exporter')
+  if (format === 'xlsx') await exportToExcel(items, result.filePath)
+  else await exportToCsv(items, result.filePath)
+  return result.filePath
+}
+
+async function handleHistoryList(): Promise<HistoryEntry[]> {
+  const entries = await loadHistory(app.getPath('userData'))
+  // Reabrir uma pesquisa do histórico deve continuar funcionando mesmo que a pasta pesquisada
+  // seja diferente da última busca ao vivo desta sessão — por isso toda pasta do histórico
+  // também entra no conjunto de pastas conhecidas, assim que listada.
+  for (const entry of entries) pathScope.remember(entry.rootFolder)
+  return entries
+}
+
+async function handleHistoryAppend(_e: unknown, entry: Omit<HistoryEntry, 'id' | 'date'>): Promise<HistoryEntry[]> {
+  const full: HistoryEntry = { ...entry, id: randomUUID(), date: Date.now() }
+  return appendHistoryEntry(app.getPath('userData'), full)
+}
+
+function handleHistoryClear(): Promise<void> {
+  return clearHistory(app.getPath('userData'))
+}
+
+async function handleIndexClear(): Promise<void> {
+  const { clearSearchIndex } = await import('./engine/searchIndex')
+  await clearSearchIndex(app.getPath('userData'))
+}
+
 function registerIpcHandlers(): void {
-  ipcMain.handle('dialog:selectFolder', async () => {
-    const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
-    if (result.canceled || result.filePaths.length === 0) return null
-    return result.filePaths[0]
-  })
-
-  ipcMain.handle('dialog:selectDestinationFolder', async () => {
-    const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
-    if (result.canceled || result.filePaths.length === 0) return null
-    return result.filePaths[0]
-  })
-
-  ipcMain.handle('search:start', async (_e, options: SearchOptions) => {
-    await startSearch(options)
-  })
-
-  ipcMain.handle('search:cancel', () => {
-    activeWorker?.postMessage({ type: 'cancel' })
-  })
-
-  ipcMain.handle('shell:openContainingFolder', (_e, targetPath: string) => {
-    pathScope.assertKnown(targetPath)
-    shell.showItemInFolder(targetPath)
-  })
-
-  ipcMain.handle('file:readXmlContent', async (_e, location: FileLocation) => {
-    pathScope.assertKnown(location.diskPath)
-    const buf = await readLocationContent(location)
-    // Respeita o encoding declarado no XML: muitos emissores ainda geram ISO-8859-1, e decodificar
-    // como UTF-8 corromperia todo texto acentuado (razão social, endereço) na visualização.
-    return decodeXmlBuffer(buf)
-  })
-
-  ipcMain.handle('file:extractSingle', async (_e, req: ExtractRequest) => {
-    pathScope.assertKnown(req.location.diskPath)
-    return extractSingleFile(req.location, req.fileName, req.destinationFolder)
-  })
-
-  ipcMain.handle('export:results', async (_e, items: ResultItem[], format: 'xlsx' | 'csv') => {
-    const defaultName = format === 'xlsx' ? 'resultados-xml-finder.xlsx' : 'resultados-xml-finder.csv'
-    const result = await dialog.showSaveDialog({
-      defaultPath: defaultName,
-      filters: format === 'xlsx' ? [{ name: 'Excel', extensions: ['xlsx'] }] : [{ name: 'CSV', extensions: ['csv'] }]
-    })
-    if (result.canceled || !result.filePath) return null
-    const { exportToCsv, exportToExcel } = await import('./engine/exporter')
-    if (format === 'xlsx') await exportToExcel(items, result.filePath)
-    else await exportToCsv(items, result.filePath)
-    return result.filePath
-  })
-
-  ipcMain.handle('history:list', async () => {
-    const entries = await loadHistory(app.getPath('userData'))
-    // Reabrir uma pesquisa do histórico deve continuar funcionando mesmo que a pasta pesquisada
-    // seja diferente da última busca ao vivo desta sessão — por isso toda pasta do histórico
-    // também entra no conjunto de pastas conhecidas, assim que listada.
-    for (const entry of entries) pathScope.remember(entry.rootFolder)
-    return entries
-  })
-
-  ipcMain.handle('history:append', async (_e, entry: Omit<HistoryEntry, 'id' | 'date'>) => {
-    const full: HistoryEntry = { ...entry, id: randomUUID(), date: Date.now() }
-    return appendHistoryEntry(app.getPath('userData'), full)
-  })
-
-  ipcMain.handle('history:clear', () => clearHistory(app.getPath('userData')))
-
-  ipcMain.handle('index:clear', async () => {
-    const { clearSearchIndex } = await import('./engine/searchIndex')
-    await clearSearchIndex(app.getPath('userData'))
-  })
+  ipcMain.handle('dialog:selectFolder', handleSelectFolder)
+  ipcMain.handle('dialog:selectDestinationFolder', handleSelectDestinationFolder)
+  ipcMain.handle('search:start', handleStartSearchIpc)
+  ipcMain.handle('search:cancel', handleCancelSearch)
+  ipcMain.handle('shell:openContainingFolder', handleOpenContainingFolder)
+  ipcMain.handle('file:readXmlContent', handleReadXmlContent)
+  ipcMain.handle('file:extractSingle', handleExtractSingle)
+  ipcMain.handle('export:results', handleExportResults)
+  ipcMain.handle('history:list', handleHistoryList)
+  ipcMain.handle('history:append', handleHistoryAppend)
+  ipcMain.handle('history:clear', handleHistoryClear)
+  ipcMain.handle('index:clear', handleIndexClear)
 }
 
 /** Emite um 'done' sintético para a renderer sempre que a pesquisa não pôde nem começar de verdade. */
@@ -156,27 +171,37 @@ function emitFatalSearchError(message: string): void {
   } satisfies SearchWorkerMessage)
 }
 
-async function startSearch(options: SearchOptions): Promise<void> {
-  if (activeWorker) {
-    // Remove os listeners ANTES de terminar: terminate() para o worker "assim que possível",
-    // não instantaneamente, e sem isso uma mensagem que ele já estava enviando poderia chegar
-    // à renderer misturada com as da nova pesquisa (mesmo canal IPC, sem id de pesquisa).
-    activeWorker.removeAllListeners()
-    activeWorker.postMessage({ type: 'cancel' })
-    activeWorker.terminate()
-    activeWorker = null
-  }
+/** Encerra a busca anterior em andamento, se houver, antes de iniciar uma nova. */
+function terminatePreviousWorker(): void {
+  if (!activeWorker) return
+  // Remove os listeners ANTES de terminar: terminate() para o worker "assim que possível",
+  // não instantaneamente, e sem isso uma mensagem que ele já estava enviando poderia chegar
+  // à renderer misturada com as da nova pesquisa (mesmo canal IPC, sem id de pesquisa).
+  activeWorker.removeAllListeners()
+  activeWorker.postMessage({ type: 'cancel' })
+  activeWorker.terminate()
+  activeWorker = null
+}
 
+/** Confirma que a pasta raiz existe e é um diretório. Emite o erro fatal e retorna false se não. */
+async function validateRootFolder(rootFolder: string): Promise<boolean> {
   try {
-    const st = await fs.promises.stat(options.rootFolder)
+    const st = await fs.promises.stat(rootFolder)
     if (!st.isDirectory()) {
-      emitFatalSearchError(`O caminho selecionado não é uma pasta: ${options.rootFolder}`)
-      return
+      emitFatalSearchError(`O caminho selecionado não é uma pasta: ${rootFolder}`)
+      return false
     }
+    return true
   } catch {
-    emitFatalSearchError(`Pasta não encontrada: ${options.rootFolder}`)
-    return
+    emitFatalSearchError(`Pasta não encontrada: ${rootFolder}`)
+    return false
   }
+}
+
+async function startSearch(options: SearchOptions): Promise<void> {
+  terminatePreviousWorker()
+
+  if (!(await validateRootFolder(options.rootFolder))) return
   pathScope.remember(options.rootFolder)
 
   const workerPath = path.join(__dirname, 'searchWorker.js')
