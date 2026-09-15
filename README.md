@@ -195,7 +195,7 @@ npm run dev
 | `npm run dev` | Sobe o app em modo desenvolvimento (hot-reload) |
 | `npm run build` | Build de produção (main + preload + renderer) em `out/` |
 | `npm run typecheck` | Checagem de tipos (main e renderer) |
-| `npm test` | Roda a suíte de testes (`node --test`) da lógica pura do motor de busca |
+| `npm test` | Roda a suíte de testes: `node --test` (motor de busca, main, store) + `vitest run` (componentes React) |
 | `node scripts/bench.js gerar <qtd> <pasta>` | Gera um acervo sintético para teste de carga |
 | `node scripts/bench.js medir <pasta>` | Mede a busca sobre esse acervo (min/mediana/máx de N repetições) |
 | `node scripts/bench-real-folder.js "<pasta>"` | Mede a busca contra uma pasta real (rede/produção) — só leitura, nunca escreve na pasta alvo |
