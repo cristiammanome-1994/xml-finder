@@ -203,20 +203,39 @@ npm run dev
 
 ### Desenvolvimento assistido por IA (Claude Code)
 
-O repositório inclui, em [`.claude/agents/`](.claude/agents/), 14 subagents do
+O repositório inclui, em [`.claude/agents/`](.claude/agents/), 18 subagents — 14 baseados no
 [VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents),
-escolhidos a dedo para a stack real do projeto (Electron + TypeScript + React, sem API/banco/nuvem) —
-em vez de instalar categorias inteiras, que trariam dezenas de especialistas irrelevantes (PHP, Rails,
-Kubernetes etc.):
+escolhidos a dedo para a stack real do projeto (Electron + TypeScript + React, sem API/banco/nuvem),
+mais 4 agentes de processo adaptados de outro projeto deste usuário — batizados com nomes de
+personagens de One Piece, escolhidos pela função de cada um (o nome do arquivo é o nome que se usa
+para chamar o agente):
 
-| Grupo | Agentes |
-|---|---|
-| Core da stack | `electron-pro`, `typescript-pro`, `react-specialist`, `node-specialist` |
-| Qualidade/segurança | `performance-engineer`, `security-auditor`, `test-automator`, `code-reviewer`, `architect-reviewer`, `accessibility-tester` |
-| Manutenção | `refactoring-specialist`, `documentation-engineer`, `build-engineer`, `dependency-manager` |
-| Processo/disciplina | `git-push-guardian`, `release-keeper`, `diff-reviewer`, `security-surface-guardian` |
+| Grupo | Agente | Personagem | Por quê |
+|---|---|---|---|
+| Core da stack | `franky` | Franky | carpinteiro naval — constrói e mantém o "casco" Electron |
+| Core da stack | `law` | Law | precisão cirúrgica — tipagem TypeScript |
+| Core da stack | `luffy` | Luffy | elástico, o rosto da tripulação — interface React |
+| Core da stack | `jinbe` | Jinbe | timoneiro — processo principal Node.js, por baixo do capô |
+| Qualidade/segurança | `usopp` | Usopp | atirador de elite — mira no gargalo exato de performance |
+| Qualidade/segurança | `zoro` | Zoro | corta direto, treino obsessivo — auditoria de segurança |
+| Qualidade/segurança | `killer` | Killer | foices gêmeas, golpe repetido e preciso — automação de testes |
+| Qualidade/segurança | `garp` | Garp | punho do amor, não deixa passar nada — revisão de código |
+| Qualidade/segurança | `nami` | Nami | navegadora — revisão de arquitetura |
+| Qualidade/segurança | `chopper` | Chopper | médico, cuida de todos — teste de acessibilidade |
+| Manutenção | `ace` | Ace | fogo controlado — refatoração |
+| Manutenção | `robin` | Robin | arqueóloga, decifra o que ficou soterrado — documentação |
+| Manutenção | `kid` | Kid | força magnética, monta a máquina — engenharia de build |
+| Manutenção | `sanji` | Sanji | só aceita ingrediente de qualidade — gestão de dependências |
+| Processo/disciplina | `smoker` | Smoker | não deixa ninguém cruzar sem checar antes — guarda do `git push` |
+| Processo/disciplina | `brook` | Brook | Rei do Som, anuncia ao mundo — changelog e release |
+| Processo/disciplina | `katakuri` | Katakuri | vê o que ninguém mais vê — revisão de diff pré-commit |
+| Processo/disciplina | `whitebeard` | Whitebeard | o maior escudo — guarda das superfícies de segurança já endurecidas |
 
-Os quatro últimos são adaptados dos agentes de processo de outro projeto deste usuário — não escolhem tecnologia, aplicam disciplina de workflow já validada aqui: conferir o remoto antes de publicar, manter `changelog.ts` em dia ao fechar uma rodada, revisar o diff atrás do defeito que passa em tudo e mesmo assim está errado, e auditar as três superfícies de segurança que este app já endureceu (escopo de caminho por IPC, teto de zip bomb, escaping de CSV).
+Os quatro de "Processo/disciplina" não escolhem tecnologia, aplicam disciplina de workflow já
+validada neste projeto: conferir o remoto antes de publicar, manter `changelog.ts` em dia ao fechar
+uma rodada, revisar o diff atrás do defeito que passa em tudo e mesmo assim está errado, e auditar
+as três superfícies de segurança que este app já endureceu (escopo de caminho por IPC, teto de zip
+bomb, escaping de CSV).
 
 O histórico completo de decisões técnicas, achados de auditoria e testes de carga (incluindo medições
 em pasta de rede de produção) está documentado em [AUDITORIA.md](AUDITORIA.md).
