@@ -6,3 +6,4 @@ release/
 *.tsbuildinfo
 .DS_Store
 .repowise/
+.claude/CLAUDE.md
