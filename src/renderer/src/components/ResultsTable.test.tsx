@@ -212,3 +212,49 @@ test('falha ao exportar mostra um toast de erro em vez de travar silenciosamente
 
   await waitFor(() => expect(useStore.getState().toast).toBe('Erro ao exportar: disco cheio'))
 })
+
+test('clicar exportar duas vezes rápido dispara a chamada uma única vez, e os três botões ficam desabilitados enquanto a exportação está pendente', async () => {
+  let resolveExport!: (path: string) => void
+  const exportResults = vi.fn(
+    () =>
+      new Promise<string>((resolve) => {
+        resolveExport = resolve
+      })
+  )
+  mockApi({ exportResults })
+  useStore.setState({ hasSearched: true, found: [foundItem()], notFound: [notFoundItem()] })
+  render(<ResultsTable />)
+
+  const excelButton = screen.getByRole('button', { name: /Exportar Excel/ })
+  const csvButton = screen.getByRole('button', { name: /Exportar CSV/ })
+  const notFoundButton = screen.getByRole('button', { name: /Exportar não encontrados/ })
+
+  fireEvent.click(excelButton)
+  fireEvent.click(excelButton)
+  fireEvent.click(csvButton)
+
+  expect(exportResults).toHaveBeenCalledTimes(1)
+  expect(excelButton).toBeDisabled()
+  expect(csvButton).toBeDisabled()
+  expect(notFoundButton).toBeDisabled()
+
+  resolveExport('C:\\saida\\resultado.xlsx')
+  await waitFor(() => expect(useStore.getState().toast).toBe('Exportado para C:\\saida\\resultado.xlsx'))
+
+  expect(excelButton).not.toBeDisabled()
+  expect(csvButton).not.toBeDisabled()
+  expect(notFoundButton).not.toBeDisabled()
+})
+
+test('exportação pendente que falha libera os botões de novo (não trava desabilitado para sempre)', async () => {
+  const exportResults = vi.fn().mockRejectedValue(new Error('disco cheio'))
+  mockApi({ exportResults })
+  useStore.setState({ hasSearched: true, found: [foundItem()] })
+  render(<ResultsTable />)
+
+  const excelButton = screen.getByRole('button', { name: /Exportar Excel/ })
+  fireEvent.click(excelButton)
+
+  await waitFor(() => expect(useStore.getState().toast).toBe('Erro ao exportar: disco cheio'))
+  expect(excelButton).not.toBeDisabled()
+})

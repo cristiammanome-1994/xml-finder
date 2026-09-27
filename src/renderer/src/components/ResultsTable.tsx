@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Download } from 'lucide-react'
 import { useStore, type ResultFilter } from '../store'
 import { fmtSize, basename } from '../format'
@@ -31,22 +31,31 @@ export function ResultsTable() {
     return allResults
   }, [allResults, filter])
 
+  const [exportPending, setExportPending] = useState(false)
+
   async function handleExport(format: 'xlsx' | 'csv'): Promise<void> {
+    if (exportPending) return
+    setExportPending(true)
     try {
       const path = await window.api.exportResults(allResults, format)
       if (path) showToast(`Exportado para ${path}`)
     } catch (err) {
       showToast(`Erro ao exportar: ${(err as Error).message}`)
+    } finally {
+      setExportPending(false)
     }
   }
 
   async function handleExportNotFound(): Promise<void> {
-    if (notFound.length === 0) return
+    if (notFound.length === 0 || exportPending) return
+    setExportPending(true)
     try {
       const path = await window.api.exportResults(notFound, 'xlsx')
       if (path) showToast(`Não encontrados exportados para ${path}`)
     } catch (err) {
       showToast(`Erro ao exportar: ${(err as Error).message}`)
+    } finally {
+      setExportPending(false)
     }
   }
 
@@ -86,15 +95,15 @@ export function ResultsTable() {
           ))}
         </div>
         <div className="toolbar-actions">
-          <button className="btn sm" disabled={allResults.length === 0} onClick={() => handleExport('xlsx')}>
+          <button className="btn sm" disabled={allResults.length === 0 || exportPending} onClick={() => handleExport('xlsx')}>
             <Download className="icon" style={{ width: 13, height: 13 }} />
             Exportar Excel
           </button>
-          <button className="btn sm" disabled={allResults.length === 0} onClick={() => handleExport('csv')}>
+          <button className="btn sm" disabled={allResults.length === 0 || exportPending} onClick={() => handleExport('csv')}>
             <Download className="icon" style={{ width: 13, height: 13 }} />
             Exportar CSV
           </button>
-          <button className="btn sm" disabled={notFound.length === 0} onClick={handleExportNotFound}>
+          <button className="btn sm" disabled={notFound.length === 0 || exportPending} onClick={handleExportNotFound}>
             <Download className="icon" style={{ width: 13, height: 13 }} />
             Exportar não encontrados
           </button>
