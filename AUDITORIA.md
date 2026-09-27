@@ -473,3 +473,45 @@ Electron antigo e de `extract-zip`, dependência transitiva do Electron) para 2 
 
 **Não testado**: o instalador NSIS (só o portable foi gerado e testado nesta rodada, seguindo o
 padrão já estabelecido nas rodadas anteriores de só empacotar o portable via `--win portable`).
+
+## Rodada 5 — Resolução do achado `uuid`/`exceljs` do `npm audit` (27/09/2026)
+
+Retomando o item deixado pendente na rodada 4 ("Vulnerabilidades de `npm audit`... a que pesa é o
+Electron estar 6 versões majors atrás", já resolvida — ver seção acima) e no upgrade do Electron
+("2 moderate, ambas `uuid` via `exceljs`"): as 2 vulnerabilidades moderadas remanescentes eram
+`uuid <11.1.1` (GHSA-w5hq-g745-h8pq — falta de checagem de limites de buffer em `v3`/`v5`/`v6`
+quando `buf` é fornecido), puxada transitivamente por `exceljs@4.4.0`, que fixa `uuid: ^8.3.0`. Não
+existe release `8.x` corrigido (`npm view uuid versions` para na `8.3.2`; a correção só existe a
+partir da `11.1.1`), e `npm audit fix --force` rebaixaria `exceljs` para `3.4.0` — mudança quebradora
+já rejeitada em rodada de auditoria anterior.
+
+**O que foi feito**: adicionado um `overrides` no `package.json` forçando só a subdependência `uuid`
+de dentro de `exceljs` para `^11.1.1`, sem tocar na versão do `exceljs` em si:
+
+```json
+"overrides": {
+  "exceljs": {
+    "uuid": "^11.1.1"
+  }
+}
+```
+
+**Por que é seguro**: confirmado via `grep -rn "require('uuid')" node_modules/exceljs/lib/` que
+`exceljs` usa `uuid` em um único arquivo (`lib/xlsx/xform/sheet/cf-ext/cf-rule-ext-xform.js`) e só
+chama `uuid.v4()` — nunca `v3`/`v5`/`v6` com argumento `buf`, que é exatamente o caminho vulnerável
+do GHSA-w5hq-g745-h8pq. A troca de `uuid@8.3.2` para `uuid@11.1.1` não muda o comportamento de `v4`
+usado por `exceljs`.
+
+**Verificação empírica realizada** (não só teórica — o plano previa reverter se algo quebrasse):
+- `npm install` + `npm ls uuid`: resolve `uuid@11.1.1` sob `exceljs@4.4.0` (era `uuid@8.3.2`).
+- `node -e "console.log(typeof require('uuid').v4)"`: imprime `function` — o CJS interop do `uuid`
+  11.x continua expondo `v4` do jeito que `exceljs` espera.
+- `npm test` antes e depois da mudança: 114 testes `node:test` + 40 testes Vitest, todos passando
+  nas duas rodadas (mesma contagem, nenhuma regressão) — incluindo
+  `src/main/engine/exporter.test.ts`, que exercita `exportToExcel`, o único caminho de código que
+  toca o uso de `uuid` do `exceljs`.
+- `npm audit --omit=dev`: `found 0 vulnerabilities` (antes: 2 moderate).
+- `npm run typecheck`: limpo, sem erros.
+
+Resultado: as 2 vulnerabilidades moderadas do `npm audit` foram eliminadas sem downgrade de
+`exceljs` e sem nenhuma regressão de teste ou de tipo.

@@ -14,6 +14,11 @@
     "test": "node --test && vitest run",
     "dist": "electron-vite build && electron-builder"
   },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
+  },
   "dependencies": {
     "exceljs": "^4.4.0",
     "geist": "^1.7.2",
