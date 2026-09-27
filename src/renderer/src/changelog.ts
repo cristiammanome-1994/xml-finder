@@ -15,6 +15,14 @@ export interface ChangelogEntry {
  */
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.11.0',
+    date: '2026-09-27',
+    title: 'Correção na exportação e reforço de segurança em dependências',
+    category: 'correcao',
+    description:
+      'Ao clicar mais de uma vez rapidamente em "Exportar CSV", "Exportar XLSX" ou "Exportar histórico", o aplicativo podia abrir a janela de salvar arquivo repetidas vezes para a mesma exportação. Os botões de exportação agora ficam desabilitados enquanto uma exportação já está em andamento, evitando esse comportamento. Também foi corrigida uma vulnerabilidade de segurança moderada em um componente interno usado pela exportação para Excel (XLSX) — sem nenhuma mudança na forma de usar o programa.'
+  },
+  {
     version: '1.10.0',
     date: '2026-09-10',
     title: 'Atualização do Electron por baixo dos panos',
